@@ -347,8 +347,8 @@ export default function RolesPage() {
       </main>
       {/* Add Role Modal */}
       {showAddModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setShowAddModal(false)}>
-          <div style={{ background: 'white', borderRadius: 14, padding: '1.75rem', width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onMouseDown={e => { if (e.target === e.currentTarget) setShowAddModal(false); }}>
+          <div style={{ background: 'white', borderRadius: 14, padding: '1.75rem', width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }} onMouseDown={e => e.stopPropagation()}>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1.25rem', margin: '0 0 1.25rem' }}>Add Role</h2>
             <div style={{ display: 'grid', gap: '0.75rem' }}>
               <div>

@@ -225,8 +225,8 @@ export default function UsersPage() {
 
         {/* Modal */}
         {showModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onClick={() => setShowModal(false)}>
-            <div style={{ background: 'white', borderRadius: 14, padding: '1.75rem', width: '100%', maxWidth: 440, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} onMouseDown={e => { if (e.target === e.currentTarget) setShowModal(false); }}>
+            <div style={{ background: 'white', borderRadius: 14, padding: '1.75rem', width: '100%', maxWidth: 440, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }} onMouseDown={e => e.stopPropagation()}>
               <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1.25rem' }}>
                 {editUser ? 'Edit User' : 'Add User'}
               </h2>
