@@ -5,17 +5,10 @@ import { seedScoresFromVisits } from '@/lib/seedScores';
 import { requireRole } from '@/lib/auth';
 import { logActivity } from '@/lib/activityLog';
 import { runAutoCalcForMonth } from '@/lib/autoCalc';
+import { loadPerigeeConfig, savePerigeeConfig, activeTokens, fetchAllVisits, mapPerigeeVisit } from '@/lib/perigee';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-interface PerigeeConfig {
-  apiKey: string;
-  endpoint: string;
-  enabled: boolean;
-  lastPolledAt: string | null;
-  requestBody: string;
-}
 
 interface PollSlot {
   id: string;
@@ -40,85 +33,8 @@ interface CronLogEntry {
   error?: string;
 }
 
-const CONFIG_KEY = 'config/perigee-api.json';
 const SCHEDULE_KEY = 'config/perigee-schedule.json';
 const CRON_LOG_KEY = 'logs/cron-poll.json';
-
-function mapPerigeeVisit(row: Record<string, unknown>): Visit {
-  const str = (key: string) => String(row[key] ?? '').trim();
-  const num = (key: string) => parseInt(String(row[key] ?? '0')) || 0;
-
-  const rawStore = str('store') || str('Store Full Name') || str('storeName') || str('place') || '';
-  let storeName = rawStore;
-  let storeCode = str('storeCode') || str('placeId') || '';
-  if (!storeCode && rawStore.includes(' - ')) {
-    const lastDash = rawStore.lastIndexOf(' - ');
-    storeName = rawStore.substring(0, lastDash).trim();
-    storeCode = rawStore.substring(lastDash + 3).trim();
-  }
-
-  let checkInDate = str('checkInDate') || '';
-  const startDateFull = str('startDateFull');
-  if (!checkInDate) {
-    if (startDateFull && startDateFull.includes(' ')) {
-      checkInDate = startDateFull.split(' ')[0];
-    } else {
-      checkInDate = str('date') || '';
-    }
-  }
-
-  let checkOutDate = str('checkOutDate') || '';
-  const endDateFull = str('endDateFull');
-  if (!checkOutDate) {
-    if (endDateFull && endDateFull.includes(' ')) {
-      checkOutDate = endDateFull.split(' ')[0];
-    }
-  }
-
-  const checkInTime = str('checkInTime') || str('startTime') || '';
-  const checkOutTime = str('checkOutTime') || str('endTime') || '';
-  const email = str('email') || str('username') || str('Username') || str('representativeId') || '';
-  const repName = str('repName') || str('displayName') || str('representativeName') || '';
-  const channel = str('channel') || str('Channel') || '';
-  const status = str('status') || str('callStatus') || '';
-  const visitId = str('visitGuid') || str('guid') || str('visitId') || '';
-
-  // Calculate duration
-  let visitDuration = str('visitDuration') || str('timeAtPlace') || '';
-  if (!visitDuration && checkInTime && checkOutTime) {
-    const inParts = checkInTime.split(':').map(Number);
-    const outParts = checkOutTime.split(':').map(Number);
-    if (inParts.length >= 2 && outParts.length >= 2) {
-      let diffMin: number;
-      if (startDateFull && endDateFull && startDateFull.includes(' ') && endDateFull.includes(' ')) {
-        const startMs = new Date(startDateFull.replace(' ', 'T')).getTime();
-        const endMs = new Date(endDateFull.replace(' ', 'T')).getTime();
-        diffMin = (!isNaN(startMs) && !isNaN(endMs) && endMs > startMs)
-          ? Math.round((endMs - startMs) / 60000) : -1;
-      } else {
-        diffMin = (outParts[0] * 60 + outParts[1]) - (inParts[0] * 60 + inParts[1]);
-      }
-      if (diffMin > 0) {
-        const h = Math.floor(diffMin / 60);
-        const m = diffMin % 60;
-        visitDuration = h > 0 ? `${h}h ${m}m` : `${m}m`;
-      }
-    }
-  }
-
-  return {
-    email, repName, channel, storeName, storeCode,
-    checkInDate, checkInTime, checkOutDate, checkOutTime,
-    checkInDistance: str('checkInDistance') || '',
-    checkOutDistance: str('checkOutDistance') || '',
-    visitDuration,
-    formsCompleted: num('formsCompleted'),
-    picsUploaded: num('picsUploaded'),
-    status,
-    networkOnCheckIn: str('networkOnCheckIn') || '',
-    visitId: visitId || undefined,
-  };
-}
 
 export async function GET(req: NextRequest) {
   // Validate cron secret OR super_admin session
@@ -153,7 +69,6 @@ export async function GET(req: NextRequest) {
     // Find matching slot (within 15-minute window) — skip if forced
     let matchedSlot: PollSlot | undefined;
     if (forceRun) {
-      // Use first enabled slot's type, default to 'short'
       const firstEnabled = schedule.slots.find(s => s.enabled);
       matchedSlot = {
         id: 'manual',
@@ -181,10 +96,10 @@ export async function GET(req: NextRequest) {
     logEntry.slotTime = matchedSlot.time;
     logEntry.slotType = matchedSlot.type;
 
-    // Load Perigee config
-    const config = await readJson<PerigeeConfig>(CONFIG_KEY, { apiKey: '', endpoint: '', enabled: false, lastPolledAt: null, requestBody: '' });
-    if (!config.endpoint || !config.apiKey) {
-      logEntry.error = 'Perigee API not configured';
+    // Load Perigee config (multi-token)
+    const config = await loadPerigeeConfig();
+    if (!config.endpoint || activeTokens(config).length === 0) {
+      logEntry.error = 'Perigee API not configured (no endpoint or active tokens)';
       await appendCronLog(logEntry);
       return NextResponse.json({ ok: false, error: 'Not configured' }, { status: 400 });
     }
@@ -207,42 +122,22 @@ export async function GET(req: NextRequest) {
     perigeeBody.startDate = startDate;
     perigeeBody.endDate = today;
 
-    // Call Perigee API
-    const perigeeRes = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(perigeeBody),
-    });
+    // Call Perigee once per active token and merge the rows
+    const { rawVisits, perToken } = await fetchAllVisits(config, perigeeBody);
+    const anyOk = perToken.some(t => t.ok);
+    const failedSummary = perToken.filter(t => !t.ok).map(t => `${t.label}: ${t.error}`).join('; ');
 
-    if (!perigeeRes.ok) {
-      const errText = await perigeeRes.text().catch(() => '');
-      logEntry.error = `Perigee ${perigeeRes.status}: ${errText.slice(0, 200)}`;
+    if (!anyOk) {
+      logEntry.error = `All tokens failed — ${failedSummary}`.slice(0, 200);
       await appendCronLog(logEntry);
       return NextResponse.json({ ok: false, error: logEntry.error }, { status: 502 });
     }
 
-    const perigeeData = await perigeeRes.json();
-
     // Update lastPolledAt
-    await writeJson(CONFIG_KEY, { ...config, lastPolledAt: new Date().toISOString() });
-
-    // Extract visits array
-    let rawVisits: Record<string, unknown>[] = [];
-    if (Array.isArray(perigeeData)) {
-      rawVisits = perigeeData;
-    } else if (perigeeData.visits && Array.isArray(perigeeData.visits.data)) {
-      rawVisits = perigeeData.visits.data;
-    } else if (Array.isArray(perigeeData.visits)) {
-      rawVisits = perigeeData.visits;
-    } else if (Array.isArray(perigeeData.data)) {
-      rawVisits = perigeeData.data;
-    }
+    await savePerigeeConfig({ ...config, lastPolledAt: new Date().toISOString() });
 
     if (rawVisits.length === 0) {
-      logEntry.result = 'No visits returned';
+      logEntry.result = failedSummary ? `No visits (partial: ${failedSummary})` : 'No visits returned';
       logEntry.imported = 0;
       await appendCronLog(logEntry);
       return NextResponse.json({ ok: true, action: 'polled', imported: 0 });
@@ -251,7 +146,7 @@ export async function GET(req: NextRequest) {
     // Map and deduplicate
     const mappedVisits: Visit[] = rawVisits.map(mapPerigeeVisit).filter(v => v.storeName || v.repName);
 
-    // Deduplicate within this batch (Perigee returns same GUID 2+ times)
+    // Deduplicate within this batch (Perigee returns same GUID 2+ times; also de-overlaps across tokens)
     const batchSeen = new Set<string>();
     const visits: Visit[] = [];
     for (const v of mappedVisits) {
@@ -266,16 +161,14 @@ export async function GET(req: NextRequest) {
     const existingKeys = new Set<string>();
     for (const meta of index) {
       const existingVisits = await loadVisitData(meta.id);
-      for (const ev of existingVisits) {
-        existingKeys.add(visitDedupeKey(ev));
-      }
+      for (const ev of existingVisits) existingKeys.add(visitDedupeKey(ev));
     }
 
     const newVisits = visits.filter(v => !existingKeys.has(visitDedupeKey(v)));
     const skipped = mappedVisits.length - newVisits.length;
 
     if (newVisits.length === 0) {
-      logEntry.result = 'All duplicates';
+      logEntry.result = failedSummary ? `All duplicates (partial: ${failedSummary})` : 'All duplicates';
       logEntry.imported = 0;
       logEntry.skipped = skipped;
       await appendCronLog(logEntry);
@@ -300,10 +193,10 @@ export async function GET(req: NextRequest) {
     // Auto-recalculate check-in + sales scores for affected months
     const affectedMonths = new Set(newVisits.map(v => v.checkInDate?.substring(0, 7)).filter(Boolean));
     for (const m of affectedMonths) {
-      try { await runAutoCalcForMonth(m, ['checkin', 'sales']); } catch { /* logged internally */ }
+      try { await runAutoCalcForMonth(m as string, ['checkin', 'sales']); } catch { /* logged internally */ }
     }
 
-    logEntry.result = 'Success';
+    logEntry.result = failedSummary ? `Success (partial: ${failedSummary})` : 'Success';
     logEntry.imported = newVisits.length;
     logEntry.skipped = skipped;
     await appendCronLog(logEntry);
@@ -328,7 +221,6 @@ async function appendCronLog(entry: CronLogEntry) {
   try {
     const logs = await readJson<CronLogEntry[]>(CRON_LOG_KEY, []);
     logs.unshift(entry);
-    // Keep last 100 entries
     await writeJson(CRON_LOG_KEY, logs.slice(0, 100));
   } catch {
     // Non-blocking — logging should never crash the cron

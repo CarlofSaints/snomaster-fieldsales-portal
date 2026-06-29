@@ -18,12 +18,30 @@ interface PollSchedule {
   timezone: string;
 }
 
+interface TokenView {
+  id: string;
+  label: string;
+  enabled: boolean;
+  masked: string;
+  hasKey: boolean;
+}
+
 interface PerigeeConfig {
-  apiKey: string;
   endpoint: string;
   enabled: boolean;
   lastPolledAt: string | null;
   requestBody?: string;
+  tokens: TokenView[];
+}
+
+// Editable token row in the UI — `apiKey` holds a NEWLY-typed key (blank = keep existing)
+interface TokenRow {
+  id: string;
+  label: string;
+  enabled: boolean;
+  apiKey: string;
+  masked: string;
+  hasKey: boolean;
 }
 
 interface CronLogEntry {
@@ -47,6 +65,7 @@ interface TestResult {
   rawTopLevelKeys?: string[];
   meta?: Record<string, unknown>;
   sentBody?: Record<string, unknown>;
+  tokens?: { label: string; ok: boolean; count: number; error?: string }[];
 }
 
 const DEFAULT_BODY = JSON.stringify({
@@ -72,7 +91,8 @@ const DEFAULT_BODY = JSON.stringify({
 export default function SettingsPage() {
   const { session, loading: authLoading, logout } = useAuth('super_admin');
   const [config, setConfig] = useState<PerigeeConfig | null>(null);
-  const [form, setForm] = useState({ apiKey: '', endpoint: '', enabled: false });
+  const [form, setForm] = useState({ endpoint: '', enabled: false });
+  const [tokens, setTokens] = useState<TokenRow[]>([]);
   const [requestBody, setRequestBody] = useState(DEFAULT_BODY);
   const [bodyError, setBodyError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -94,7 +114,10 @@ export default function SettingsPage() {
       .then(r => r.json())
       .then(data => {
         setConfig(data);
-        setForm({ apiKey: '', endpoint: data.endpoint || '', enabled: data.enabled || false });
+        setForm({ endpoint: data.endpoint || '', enabled: data.enabled || false });
+        setTokens(Array.isArray(data.tokens)
+          ? data.tokens.map((t: TokenView) => ({ id: t.id, label: t.label, enabled: t.enabled, masked: t.masked, hasKey: t.hasKey, apiKey: '' }))
+          : []);
         if (data.requestBody) setRequestBody(data.requestBody);
       })
       .catch(() => {});
@@ -162,8 +185,14 @@ export default function SettingsPage() {
         endpoint: form.endpoint,
         enabled: form.enabled,
         requestBody,
+        tokens: tokens.map(t => ({
+          id: t.id,
+          label: t.label,
+          enabled: t.enabled,
+          // only send a key when the user typed a new one (blank = keep existing)
+          ...(t.apiKey.trim() ? { apiKey: t.apiKey.trim() } : {}),
+        })),
       };
-      if (form.apiKey) body.apiKey = form.apiKey;
 
       const res = await authFetch('/api/config/perigee', {
         method: 'PUT',
@@ -172,9 +201,12 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         setToast({ msg: 'Settings saved', type: 'success' });
-        setForm(f => ({ ...f, apiKey: '' }));
         const r2 = await authFetch('/api/config/perigee');
-        setConfig(await r2.json());
+        const data = await r2.json();
+        setConfig(data);
+        setTokens(Array.isArray(data.tokens)
+          ? data.tokens.map((t: TokenView) => ({ id: t.id, label: t.label, enabled: t.enabled, masked: t.masked, hasKey: t.hasKey, apiKey: '' }))
+          : []);
       } else {
         setToast({ msg: 'Save failed', type: 'error' });
       }
@@ -183,6 +215,18 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function addToken() {
+    setTokens(ts => [...ts, { id: crypto.randomUUID(), label: `Token ${ts.length + 1}`, enabled: true, apiKey: '', masked: '', hasKey: false }]);
+  }
+
+  function updateToken(id: string, field: keyof TokenRow, value: string | boolean) {
+    setTokens(ts => ts.map(t => t.id === id ? { ...t, [field]: value } : t));
+  }
+
+  function removeToken(id: string) {
+    setTokens(ts => ts.filter(t => t.id !== id));
   }
 
   async function callPoll(mode: 'test' | 'import') {
@@ -325,15 +369,56 @@ export default function SettingsPage() {
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: 4 }}>
-                Bearer Token {config?.apiKey && <span style={{ color: '#9ca3af' }}>(current: {config.apiKey})</span>}
+                Bearer Tokens
               </label>
-              <input
-                className="input"
-                type="password"
-                value={form.apiKey}
-                onChange={e => setForm({ ...form, apiKey: e.target.value })}
-                placeholder="Leave blank to keep current token"
-              />
+              <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0 0 0.6rem' }}>
+                Add one token per Perigee account/scope. Polling calls the endpoint once per enabled
+                token and merges + de-duplicates all visits — use this when no single user covers every store.
+              </p>
+
+              {tokens.length === 0 && (
+                <p style={{ color: '#6b7280', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '0.6rem' }}>
+                  No tokens yet. Add at least one.
+                </p>
+              )}
+
+              <div style={{ display: 'grid', gap: '0.6rem' }}>
+                {tokens.map(t => (
+                  <div key={t.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.6rem', background: '#fafafa' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+                      <input
+                        className="input"
+                        value={t.label}
+                        onChange={e => updateToken(t.id, 'label', e.target.value)}
+                        placeholder="Label (e.g. Makro reps)"
+                        style={{ flex: 1, fontSize: '0.8rem' }}
+                      />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.75rem', color: '#374151', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={t.enabled} onChange={e => updateToken(t.id, 'enabled', e.target.checked)} />
+                        Enabled
+                      </label>
+                      <button
+                        onClick={() => removeToken(t.id)}
+                        style={{ color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', padding: '4px 6px' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <input
+                      className="input"
+                      type="password"
+                      value={t.apiKey}
+                      onChange={e => updateToken(t.id, 'apiKey', e.target.value)}
+                      placeholder={t.hasKey ? `Leave blank to keep current (${t.masked})` : 'Paste Bearer token'}
+                      style={{ fontSize: '0.8rem' }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button className="btn btn-outline" onClick={addToken} style={{ marginTop: '0.6rem', fontSize: '0.78rem', padding: '5px 10px' }}>
+                + Add Token
+              </button>
             </div>
 
             {config?.lastPolledAt && (
@@ -435,8 +520,18 @@ export default function SettingsPage() {
               {testResult.ok ? (
                 <>
                   <div style={{ fontWeight: 600, color: '#166534', marginBottom: 4 }}>
-                    Connection successful — {testResult.totalRows} visits returned
+                    Connection successful — {testResult.totalRows} visits returned (merged across tokens)
                   </div>
+                  {testResult.tokens && testResult.tokens.length > 0 && (
+                    <div style={{ color: '#374151', marginBottom: 4 }}>
+                      {testResult.tokens.map((tk, i) => (
+                        <div key={i} style={{ fontSize: '0.75rem' }}>
+                          <span style={{ color: tk.ok ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{tk.ok ? '✓' : '✕'}</span>{' '}
+                          <strong>{tk.label}</strong>: {tk.ok ? `${tk.count} rows` : (tk.error || 'failed')}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {testResult.responseKeys && testResult.responseKeys.length > 0 && (
                     <div style={{ color: '#374151', marginBottom: 4 }}>
                       <strong>Response fields:</strong> {testResult.responseKeys.join(', ')}

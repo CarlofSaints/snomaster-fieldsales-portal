@@ -3,7 +3,7 @@
 :root {
   --sno-blue: #e31e1c;
   --sno-accent: #f5453f;
-  --sno-dark: #1A1A2E;
+  --sno-dark: #1a1a1a;
   --sno-light: #F0F4F8;
   --sno-border: #D1D5DB;
 }
@@ -71,8 +71,8 @@ body {
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--sno-blue); color: white; }
 .btn-primary:hover:not(:disabled) { background: #b81816; }
-.btn-accent { background: var(--sno-accent); color: white; }
-.btn-accent:hover:not(:disabled) { background: #e0322e; }
+.btn-accent { background: #fff; color: var(--sno-blue); border: 1px solid var(--sno-blue); }
+.btn-accent:hover:not(:disabled) { background: #fff5f5; }
 .btn-danger { background: #dc2626; color: white; }
 .btn-danger:hover:not(:disabled) { background: #b91c1c; }
 .btn-outline { background: transparent; border: 1px solid var(--sno-border); color: #374151; }

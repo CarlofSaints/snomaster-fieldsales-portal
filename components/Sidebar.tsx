@@ -195,7 +195,7 @@ export default function Sidebar({ role, name, onLogout }: SidebarProps) {
             left: 0,
             right: 0,
             height: TOPBAR_H,
-            background: '#1A1A2E',
+            background: '#1a1a1a',
             display: 'flex',
             alignItems: 'center',
             gap: '0.75rem',
@@ -226,7 +226,7 @@ export default function Sidebar({ role, name, onLogout }: SidebarProps) {
         style={{
           width: SIDEBAR_W,
           minHeight: '100vh',
-          background: '#1A1A2E',
+          background: '#1a1a1a',
           display: 'flex',
           flexDirection: 'column',
           position: 'fixed',

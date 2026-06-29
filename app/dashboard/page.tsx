@@ -51,7 +51,7 @@ interface LBEntry {
   scores: Record<string, { total: number; monthlySales: number; checkInOnTime: number; feedback: number; displayInspection: number; training: number }>;
 }
 
-const PIE_COLORS = ['#e31e1c', '#f5453f', '#1A1A2E', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
+const PIE_COLORS = ['#e31e1c', '#f5453f', '#1a1a1a', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
 const PAGE_SIZE = 100;
 
 function currentMonth() {
