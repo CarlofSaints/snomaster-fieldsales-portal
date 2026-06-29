@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { loadUsers, saveUsers, User } from '@/lib/userData';
 import { requireRole, noCacheHeaders } from '@/lib/auth';
-import { sendEmail } from '@/lib/email';
+import { sendEmail, welcomeEmailHtml, WELCOME_SUBJECT } from '@/lib/email';
 import { logFromUser } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
@@ -54,17 +54,10 @@ export async function POST(req: NextRequest) {
     // Send welcome email only if requested
     if (sendWelcomeEmail !== false) {
       try {
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://snomaster-fieldsales-portal.vercel.app';
         await sendEmail({
           to: email,
-          subject: 'Welcome to SnoMaster BA Measurement',
-          html: `
-            <h2>Welcome, ${name}!</h2>
-            <p>Your account has been created.</p>
-            <p><strong>Email:</strong> ${email}<br/>
-            <strong>Temporary password:</strong> ${tempPassword}</p>
-            <p>Please log in and change your password: <a href="${siteUrl}/login">${siteUrl}/login</a></p>
-          `,
+          subject: WELCOME_SUBJECT,
+          html: welcomeEmailHtml({ name, email, password: tempPassword }),
         });
       } catch (emailErr) {
         console.error('Welcome email failed:', emailErr);

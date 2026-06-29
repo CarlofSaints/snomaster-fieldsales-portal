@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, noCacheHeaders } from '@/lib/auth';
 import { loadUsers, saveUsers } from '@/lib/userData';
-import { sendEmail } from '@/lib/email';
+import { sendEmail, welcomeEmailHtml, WELCOME_SUBJECT } from '@/lib/email';
 import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
@@ -31,27 +31,14 @@ export async function POST(req: NextRequest) {
     await saveUsers(users);
 
     const user = users[idx];
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://snomaster-fieldsales-portal.vercel.app';
 
     // Try sending email
     let emailSent = false;
     try {
       await sendEmail({
         to: user.email,
-        subject: 'SnoMaster BA Measurement — Your Login Credentials',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 500px;">
-            <h2 style="color: #e31e1c;">Welcome to SnoMaster BA Measurement</h2>
-            <p>Hi ${user.name},</p>
-            <p>Your account has been created. Use the credentials below to log in:</p>
-            <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
-              <p style="margin: 4px 0;"><strong>Email:</strong> ${user.email}</p>
-              <p style="margin: 4px 0;"><strong>Temporary Password:</strong> ${tempPassword}</p>
-            </div>
-            <p>You will be prompted to change your password on first login.</p>
-            <p><a href="${siteUrl}" style="color: #e31e1c;">Log in here</a></p>
-          </div>
-        `,
+        subject: WELCOME_SUBJECT,
+        html: welcomeEmailHtml({ name: user.name, email: user.email, password: tempPassword }),
       });
       emailSent = true;
     } catch {
