@@ -229,7 +229,31 @@ export default function SettingsPage() {
     setTokens(ts => ts.filter(t => t.id !== id));
   }
 
+  // Has the form changed since the last save? (Test/Import use the SAVED config server-side.)
+  const savedTokenById = new Map((config?.tokens ?? []).map(t => [t.id, t]));
+  const dirty =
+    (config?.endpoint ?? '') !== form.endpoint ||
+    tokens.length !== (config?.tokens?.length ?? 0) ||
+    tokens.some(t => {
+      const s = savedTokenById.get(t.id);
+      return !s || s.label !== t.label || s.enabled !== t.enabled || t.apiKey.trim() !== '';
+    });
+
   async function callPoll(mode: 'test' | 'import') {
+    // The poll route reads the SAVED config — guard against the "didn't click Save" trap.
+    if (!config?.endpoint || !form.endpoint.trim()) {
+      setToast({ msg: 'Enter the API Endpoint and click "Save Settings" before testing.', type: 'error' });
+      return;
+    }
+    if (!(config?.tokens ?? []).some(t => t.enabled && t.hasKey)) {
+      setToast({ msg: 'Add at least one enabled token with a key, then click "Save Settings".', type: 'error' });
+      return;
+    }
+    if (dirty) {
+      setToast({ msg: 'You have unsaved changes — click "Save Settings" first so they take effect.', type: 'error' });
+      return;
+    }
+
     // Validate JSON
     let parsed: Record<string, unknown>;
     try {
