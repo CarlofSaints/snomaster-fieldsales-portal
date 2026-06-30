@@ -39,7 +39,34 @@ full scoring + report architecture — identical code.)
   scanning + latest-month detection). KEPT unchanged.
 - **Hirsch's** — another retailer (like Makro) but their files have **no standard name** and are **messy
   Excel** files needing custom cleaning/parsing before load. **TO BUILD** — Carl will provide a sample
-  Hirsch's file to design the parser/cleaner against.
+  Hirsch's file to design the parser/cleaner against. NOTE: Hirsch's files are **NOT called DISPOs** —
+  UI labels are already generic ("Sales & Stock Data") in anticipation.
+
+## Store Master = Canonical Hub (2026-06-30 rework)
+The store master (`admin/stores.json`, `lib/storeData.ts`) is now the single source of truth, keyed by
+the **Perigee (visit) code**. Previously stores only existed if sales/DISPO data was loaded, and a
+visit's Perigee `storeCode` only matched the retailer's sales code by coincidence — that disconnect is
+the bug behind wrong store↔BA attribution.
+- **StoreMaster** now has `perigeeCode`, `salesName`, `salesCode`, `notInData`, `source` (+ legacy
+  `siteCode` kept for migration). `normalizeStore()` migrates old DISPO rows to `source:'sales'`.
+- **Visited stores auto-upsert** into the master on every visit poll (manual + cron) and manual upload
+  (`syncVisitedStores`/`upsertVisitedStores`).
+- **Sales loads link** to the master (`linkSalesStores`): match by sales code → sales name →
+  Perigee==sales code → name; unmatched become orphan `source:'sales'` rows.
+- **Attribution resolvers** (`buildCodeToSalesName`, `buildAssignmentByCode`) map ANY code
+  (Perigee/sales/legacy) → sales name, used by leaderboard, autoCalc, auto-calc-sales, guidance,
+  ba-work, and the sales page — so visits and sales feeds "talk to each other".
+- **Stores page** (`/admin/stores`): tabs (All / Needs linking / Sales w/o store / Not in data /
+  Linked), a search-and-link modal (merge a visited store with a sales entry, both directions), and a
+  per-store **"Not in data"** toggle for visited stores with no sales feed (Beares, Dial-a-bed).
+- **Leaderboard display store** is now a BA's **most-visited** store (assignment still overrides),
+  replacing the old arbitrary "last visit row wins" behaviour.
+
+### Diagnostic
+`/api/debug/ba-store?q=<email|name>` (admin-only, read-only) dumps every visit row for a BA, which store
+the leaderboard resolves, and any store-master assignment — built to pin down the Josephe Gwabeni
+mis-attribution (store shown ≠ stores actually visited). **Still to confirm with live data** whether his
+case was stale/cross-month visits, an email collision, or an assignment.
 
 ## Outstanding To Go Live
 1. Get the **SnoMaster Perigee API token** (for visits) — set in env / Perigee config page.
