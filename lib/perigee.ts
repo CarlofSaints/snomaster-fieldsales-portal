@@ -1,5 +1,6 @@
 import { readJson, writeJson } from './blob';
 import type { Visit } from './visitData';
+import { fetchAllPerigeeVisits, PerigeeFetchError } from './perigeeFetch';
 
 /**
  * Perigee API integration — shared by the manual poll route and the cron poll route.
@@ -109,7 +110,11 @@ export interface TokenFetchResult {
   raw?: unknown;
 }
 
-/** Call the Perigee endpoint once for a single token. */
+/**
+ * Fetch ALL visits for a single token, walking EVERY page of Perigee's
+ * paginated response. Reading only page 1 (the old behaviour) silently dropped
+ * most visits for busy date ranges.
+ */
 export async function fetchVisitsForToken(
   endpoint: string,
   token: PerigeeToken,
@@ -117,19 +122,18 @@ export async function fetchVisitsForToken(
   keepRaw = false,
 ): Promise<TokenFetchResult> {
   try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token.apiKey}` },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      return { tokenId: token.id, label: token.label, ok: false, status: res.status, count: 0, error: `${res.status}: ${errText.slice(0, 200)}`, rawVisits: [] };
-    }
-    const data = await res.json();
-    const rawVisits = extractRawVisits(data);
-    return { tokenId: token.id, label: token.label, ok: true, status: res.status, count: rawVisits.length, rawVisits, raw: keepRaw ? data : undefined };
+    const { rows, firstPageMeta } = await fetchAllPerigeeVisits(endpoint, token.apiKey, body);
+    return {
+      tokenId: token.id, label: token.label, ok: true, status: 200,
+      count: rows.length, rawVisits: rows,
+      // Test mode reads `.visits` (pagination meta) off raw — the helper already
+      // stripped `data`, so wrap the page-1 meta back under `visits`.
+      raw: keepRaw ? { visits: firstPageMeta } : undefined,
+    };
   } catch (err) {
+    if (err instanceof PerigeeFetchError) {
+      return { tokenId: token.id, label: token.label, ok: false, status: err.status, count: 0, error: `${err.status}: ${err.detail.slice(0, 200)}`, rawVisits: [] };
+    }
     return { tokenId: token.id, label: token.label, ok: false, count: 0, error: err instanceof Error ? err.message : 'Fetch failed', rawVisits: [] };
   }
 }
