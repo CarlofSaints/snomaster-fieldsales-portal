@@ -37,10 +37,17 @@ full scoring + report architecture — identical code.)
 ## Retailer Data Sources
 - **Makro** — standard **DISPO** Excel uploads (existing `app/api/dispo/upload/route.ts`, dynamic header
   scanning + latest-month detection). KEPT unchanged.
-- **Hirsch's** — another retailer (like Makro) but their files have **no standard name** and are **messy
-  Excel** files needing custom cleaning/parsing before load. **TO BUILD** — Carl will provide a sample
-  Hirsch's file to design the parser/cleaner against. NOTE: Hirsch's files are **NOT called DISPOs** —
-  UI labels are already generic ("Sales & Stock Data") in anticipation.
+- **Hirsch's** — messy period-sum `.xls` exports ("Sales & Stock by Supplier"), NOT DISPOs.
+  **PARSER + INGESTION BUILT** (2026-06-30). Layout: split title/date block, header row
+  `Code|D|Cat|Description|Br|Sales Qty|Sales Val|Stock Qty|Stock Val`, category divider rows + a
+  Grand Totals footer interleaved. `lib/hirschParse.ts` keeps only rows whose description contains
+  SNOMASTER (model code = first token, stripped), parses the From/To range (DD/MM/YYYY, spaces),
+  parses comma Rand strings. `lib/hirschData.ts` stores by **period** (files must be within ONE month;
+  sales summed per month, stock = latest period in month). **Overlap blocked** at upload with a popup
+  (data is a period sum, can't de-overlap). Routes `/api/hirsch/upload|GET|delete/[id]`; upload UI
+  section on `/upload`. Validated vs the sample file (per-branch totals == file's Grand Totals ±R1).
+  **STILL TO DO:** (1) wire Hirsch sales into scoring/reports (Phase B); (2) **site-file upload** to name
+  branches/stores by site code — Carl to provide real Makro + Hirsch site master files.
 
 ## Store Master = Canonical Hub (2026-06-30 rework)
 The store master (`admin/stores.json`, `lib/storeData.ts`) is now the single source of truth, keyed by
