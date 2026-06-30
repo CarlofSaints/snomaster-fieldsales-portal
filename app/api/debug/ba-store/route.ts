@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
   const byEmail = new Map<string, {
     repNames: Set<string>;
     storeCounts: Map<string, number>;
+    byMonth: Map<string, Map<string, number>>; // YYYY-MM -> store -> count
     codes: Set<string>;
     suspectVisits: number;
   }>();
@@ -57,10 +58,16 @@ export async function GET(req: NextRequest) {
       }
 
       if (!matchesQuery || !email) continue;
-      if (!byEmail.has(email)) byEmail.set(email, { repNames: new Set(), storeCounts: new Map(), codes: new Set(), suspectVisits: 0 });
+      if (!byEmail.has(email)) byEmail.set(email, { repNames: new Set(), storeCounts: new Map(), byMonth: new Map(), codes: new Set(), suspectVisits: 0 });
       const e = byEmail.get(email)!;
       if (v.repName) e.repNames.add(v.repName);
-      if (storeName) e.storeCounts.set(storeName, (e.storeCounts.get(storeName) || 0) + 1);
+      if (storeName) {
+        e.storeCounts.set(storeName, (e.storeCounts.get(storeName) || 0) + 1);
+        const mk = (v.checkInDate || '').slice(0, 7) || 'unknown';
+        if (!e.byMonth.has(mk)) e.byMonth.set(mk, new Map());
+        const mm = e.byMonth.get(mk)!;
+        mm.set(storeName, (mm.get(storeName) || 0) + 1);
+      }
       if (v.storeCode) e.codes.add(v.storeCode);
       if (isSuspect) e.suspectVisits++;
     }
@@ -81,9 +88,16 @@ export async function GET(req: NextRequest) {
     const assignedDisplay = assignedRows.length ? (assignedRows[0].salesName || assignedRows[0].storeName) : '';
     const wouldDisplay = assignedDisplay || mostVisited?.store || '(none)';
 
+    // Per-month store breakdown (chronological) to see if his store changed over time.
+    const byMonth: Record<string, Record<string, number>> = {};
+    for (const mk of [...e.byMonth.keys()].sort()) {
+      byMonth[mk] = Object.fromEntries([...e.byMonth.get(mk)!.entries()].sort((a, b) => b[1] - a[1]));
+    }
+
     report.push({
       email,
       repNames: [...e.repNames],
+      storeVisitsByMonth: byMonth,
       sharedLoginWarning: e.repNames.size > 1 ? `⚠ This email is used by ${e.repNames.size} different rep names — visits from all of them are merged.` : null,
       visitedStores: Object.fromEntries(counts),
       mostVisitedStore: mostVisited,
