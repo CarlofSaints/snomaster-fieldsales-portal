@@ -19,6 +19,9 @@ interface StoreMaster {
   notInData?: boolean;
   source?: 'visit' | 'sales' | 'manual';
   siteCode?: string;
+  siteName?: string;       // resolved from retailer site file (read-only)
+  siteProvince?: string;
+  siteSubChannel?: string;
   _id: number; // runtime-only stable key
 }
 
@@ -107,6 +110,7 @@ export default function StoresPage() {
     if (q) {
       list = list.filter(s =>
         s.storeName.toLowerCase().includes(q) ||
+        (s.siteName || '').toLowerCase().includes(q) ||
         (s.salesName || '').toLowerCase().includes(q) ||
         (s.perigeeCode || '').toLowerCase().includes(q) ||
         (s.salesCode || '').toLowerCase().includes(q) ||
@@ -307,9 +311,17 @@ export default function StoresPage() {
                       <tr key={store._id} style={rowBg ? { background: rowBg } : undefined}>
                         <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{store.perigeeCode || '—'}</td>
                         <td>
-                          {store.storeName}
+                          {store.storeName || store.siteName || <span style={{ color: '#9ca3af' }}>—</span>}
+                          {!store.storeName && store.siteName && (
+                            <span style={{ marginLeft: 6, fontSize: '0.65rem', color: '#047857', background: '#d1fae5', padding: '1px 6px', borderRadius: 4 }}>site file</span>
+                          )}
                           {isOrphanSales(store) && (
                             <span style={{ marginLeft: 6, fontSize: '0.65rem', color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 4 }}>sales only</span>
+                          )}
+                          {(store.siteProvince || store.siteSubChannel) && (
+                            <div style={{ fontSize: '0.68rem', color: '#9ca3af' }}>
+                              {[store.siteSubChannel, store.siteProvince].filter(Boolean).join(' · ')}
+                            </div>
                           )}
                         </td>
                         <td style={{ fontSize: '0.78rem' }}>

@@ -80,6 +80,12 @@ export default function UploadPage() {
   const hirschFileRef = useRef<HTMLInputElement>(null);
   const [hirschWarning, setHirschWarning] = useState<string | null>(null);
 
+  // Site file state
+  const [siteRetailer, setSiteRetailer] = useState<'hirsch' | 'makro'>('hirsch');
+  const [siteFile, setSiteFile] = useState<File | null>(null);
+  const [siteUploading, setSiteUploading] = useState(false);
+  const [siteInfo, setSiteInfo] = useState<Record<string, { fileName: string; uploadedAt: string; count: number; skipped: number }>>({});
+
   // Training state
   const [trainingUploads, setTrainingUploads] = useState<UploadMeta[]>([]);
   const [trainingUploading, setTrainingUploading] = useState(false);
@@ -147,6 +153,16 @@ export default function UploadPage() {
     } catch { /* ignore */ }
   }, []);
 
+  const loadSiteInfo = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/site-file');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.retailers) setSiteInfo(data.retailers);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const loadTrainingUploads = useCallback(async () => {
     try {
       const res = await authFetch('/api/training');
@@ -183,12 +199,13 @@ export default function UploadPage() {
       loadUploads();
       loadDispoUploads();
       loadHirschUploads();
+      loadSiteInfo();
       loadTrainingUploads();
       loadTargetUploads();
       loadDisplayUploads();
       loadRedFlagUploads();
     }
-  }, [session, loadUploads, loadDispoUploads, loadHirschUploads, loadTrainingUploads, loadTargetUploads, loadDisplayUploads, loadRedFlagUploads]);
+  }, [session, loadUploads, loadDispoUploads, loadHirschUploads, loadSiteInfo, loadTrainingUploads, loadTargetUploads, loadDisplayUploads, loadRedFlagUploads]);
 
   async function handleFile(file: File) {
     if (!file.name.match(/\.(xlsx?|csv)$/i)) {
@@ -336,6 +353,29 @@ export default function UploadPage() {
       }
     } catch {
       setToast({ msg: 'Delete failed', type: 'error' });
+    }
+  }
+
+  async function handleSiteFileUpload() {
+    if (!siteFile) return;
+    setSiteUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', siteFile);
+      fd.append('retailer', siteRetailer);
+      const res = await authFetch('/api/site-file/upload', { method: 'POST', body: fd });
+      const result = await res.json();
+      if (res.ok && result.ok) {
+        setToast({ msg: `${siteRetailer === 'hirsch' ? "Hirsch's" : 'Makro'} site file loaded — ${result.count} sites${result.skipped ? ` (${result.skipped} skipped)` : ''}`, type: 'success' });
+        setSiteFile(null);
+        loadSiteInfo();
+      } else {
+        setToast({ msg: result.error || 'Upload failed', type: 'error' });
+      }
+    } catch {
+      setToast({ msg: 'Upload failed', type: 'error' });
+    } finally {
+      setSiteUploading(false);
     }
   }
 
@@ -892,6 +932,59 @@ export default function UploadPage() {
               No Hirsch&apos;s uploads yet
             </div>
           )}
+        </div>
+
+        {/* === SITE / STORE FILE UPLOAD === */}
+        <div style={{ background: 'white', borderRadius: 12, padding: '1.5rem', border: '1px solid #e5e7eb', marginTop: '2rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>
+            Store Site Files
+          </h2>
+          <p style={{ color: '#9ca3af', fontSize: '0.8rem', marginBottom: '1rem' }}>
+            Upload the Makro / Hirsch&apos;s master site files (MASTER_SITE sheet) so store names are
+            resolved from site codes. Re-uploading a retailer replaces its previous file. (Makro file&apos;s
+            Massbuild rows are ignored.)
+          </p>
+
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <select
+              className="select"
+              value={siteRetailer}
+              onChange={e => setSiteRetailer(e.target.value as 'hirsch' | 'makro')}
+              style={{ fontSize: '0.85rem', minWidth: 140 }}
+            >
+              <option value="hirsch">Hirsch&apos;s</option>
+              <option value="makro">Makro</option>
+            </select>
+            <input
+              type="file"
+              accept=".xls,.xlsx,.xlsm,.xlsb"
+              onChange={e => setSiteFile(e.target.files?.[0] || null)}
+              style={{ fontSize: '0.82rem' }}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleSiteFileUpload}
+              disabled={siteUploading || !siteFile}
+              style={{ fontSize: '0.85rem' }}
+            >
+              {siteUploading ? (<><Spinner size={14} color="#fff" /> Uploading...</>) : 'Upload Site File'}
+            </button>
+          </div>
+
+          <div style={{ fontSize: '0.78rem', color: '#374151' }}>
+            {(['hirsch', 'makro'] as const).map(key => {
+              const info = siteInfo[key];
+              const label = key === 'hirsch' ? "Hirsch's" : 'Makro';
+              return (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid #f3f4f6' }}>
+                  <span style={{ fontWeight: 600 }}>{label}</span>
+                  <span style={{ color: info ? '#047857' : '#9ca3af' }}>
+                    {info ? `${info.count} sites — ${info.fileName} (${new Date(info.uploadedAt).toLocaleDateString('en-ZA')})` : 'Not loaded'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* === TRAINING FORM DATA UPLOAD === */}
