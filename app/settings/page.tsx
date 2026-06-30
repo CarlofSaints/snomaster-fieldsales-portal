@@ -68,6 +68,17 @@ interface TestResult {
   tokens?: { label: string; ok: boolean; count: number; error?: string }[];
 }
 
+interface ImportResult {
+  ok?: boolean;
+  error?: string;
+  detail?: string;
+  message?: string;
+  totalRows?: number;
+  importedRows?: number;
+  skippedDuplicates?: number;
+  tokens?: { label: string; ok: boolean; count: number; error?: string }[];
+}
+
 const DEFAULT_BODY = JSON.stringify({
   startDate: new Date().toISOString().slice(0, 10),
   endDate: '',
@@ -99,6 +110,7 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [schedule, setSchedule] = useState<PollSchedule>({ slots: [], timezone: 'Africa/Johannesburg' });
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -274,6 +286,7 @@ export default function SettingsPage() {
     } else {
       if (!confirm(`Import visits from ${parsed.startDate}? This will create a new upload batch.`)) return;
       setImporting(true);
+      setImportResult(null);
     }
 
     try {
@@ -288,7 +301,8 @@ export default function SettingsPage() {
         setTestResult(data);
         setToast({ msg: data.ok ? `Test OK — ${data.totalRows} visits returned` : (data.error || 'Test failed'), type: data.ok ? 'success' : 'error' });
       } else {
-        setToast({ msg: data.ok ? `Imported ${data.importedRows} visits` : (data.error || 'Import failed'), type: data.ok ? 'success' : 'error' });
+        setImportResult(data);
+        setToast({ msg: data.ok ? `Imported ${data.importedRows ?? 0} visits` : (data.error || 'Import failed'), type: data.ok ? 'success' : 'error' });
       }
     } catch {
       setToast({ msg: `${mode === 'test' ? 'Connection' : 'Import'} failed`, type: 'error' });
@@ -594,6 +608,49 @@ export default function SettingsPage() {
                   {testResult.detail && (
                     <pre style={{ overflow: 'auto', maxHeight: 150, fontSize: '0.7rem', color: '#6b7280' }}>
                       {testResult.detail}
+                    </pre>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Import Results */}
+          {importResult && (
+            <div style={{ marginTop: '1rem', padding: '0.75rem', background: importResult.ok ? '#f0fdf4' : '#fef2f2', borderRadius: 8, fontSize: '0.8rem', border: `1px solid ${importResult.ok ? '#bbf7d0' : '#fecaca'}` }}>
+              {importResult.ok ? (
+                <>
+                  <div style={{ fontWeight: 600, color: '#166534', marginBottom: 6 }}>
+                    {importResult.importedRows && importResult.importedRows > 0
+                      ? `Imported ${importResult.importedRows} new visit${importResult.importedRows === 1 ? '' : 's'}`
+                      : (importResult.message || 'No new visits imported')}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem', color: '#374151' }}>
+                    <span><strong>{importResult.importedRows ?? 0}</strong> imported</span>
+                    <span><strong>{importResult.skippedDuplicates ?? 0}</strong> skipped (already had)</span>
+                    <span><strong>{importResult.totalRows ?? 0}</strong> fetched from Perigee</span>
+                  </div>
+                  {importResult.tokens && importResult.tokens.length > 0 && (
+                    <div style={{ marginTop: 6, color: '#374151' }}>
+                      <strong>Per token:</strong>
+                      <ul style={{ margin: '2px 0 0', paddingLeft: '1.1rem' }}>
+                        {importResult.tokens.map((tk, i) => (
+                          <li key={i} style={{ color: tk.ok ? '#374151' : '#991b1b' }}>
+                            {tk.label}: {tk.ok ? `${tk.count} fetched` : `failed — ${tk.error || 'error'}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 600, color: '#991b1b', marginBottom: 4 }}>
+                    {importResult.error || 'Import failed'}
+                  </div>
+                  {importResult.detail && (
+                    <pre style={{ overflow: 'auto', maxHeight: 150, fontSize: '0.7rem', color: '#6b7280' }}>
+                      {importResult.detail}
                     </pre>
                   )}
                 </>
