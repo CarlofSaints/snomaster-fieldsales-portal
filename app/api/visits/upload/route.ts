@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, noCacheHeaders } from '@/lib/auth';
 import { loadVisitIndex, saveVisitIndex, saveVisitData, Visit } from '@/lib/visitData';
+import { syncVisitedStores } from '@/lib/storeData';
 import { logFromUser } from '@/lib/activityLog';
 import { runAutoCalcForMonth } from '@/lib/autoCalc';
 import * as zlib from 'zlib';
@@ -203,6 +204,8 @@ export async function POST(req: NextRequest) {
       });
       await saveVisitIndex(index);
 
+      try { await syncVisitedStores(visits); } catch (e) { console.error('syncVisitedStores failed:', e); }
+
       logFromUser(user, 'upload_visits', `visits/${uploadId}`, `Uploaded ${visits.length} visit rows from ${fileName}`);
 
       // Auto-recalculate check-in + sales scores for affected months
@@ -245,6 +248,8 @@ export async function POST(req: NextRequest) {
       rowCount: parsed.visits.length,
     });
     await saveVisitIndex(index);
+
+    try { await syncVisitedStores(parsed.visits); } catch (e) { console.error('syncVisitedStores failed:', e); }
 
     logFromUser(user, 'upload_visits', `visits/${uploadId}`, `Uploaded ${parsed.visits.length} visit rows from ${fileName}`);
 

@@ -3,7 +3,7 @@ import { requireAnyUser, noCacheHeaders } from '@/lib/auth';
 import { loadScores, calcTotal, calcGrandTotal, BAScore } from '@/lib/scoreData';
 import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
 import { loadDispoData } from '@/lib/dispoData';
-import { loadStores } from '@/lib/storeData';
+import { loadStores, buildCodeToSalesName, storeSalesKey } from '@/lib/storeData';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,65 +68,78 @@ export async function GET(req: NextRequest) {
       loadStores(),
     ]);
 
-    // Build siteCode → DISPO storeName map from store master
-    const codeToDispoName = new Map<string, string>();
-    for (const s of storeMaster) {
-      if (s.siteCode && s.storeName) {
-        codeToDispoName.set(s.siteCode.toLowerCase().trim(), s.storeName);
-      }
-    }
+    // Any store code (Perigee/sales/legacy) → the store's sales-data name.
+    const codeToSalesName = buildCodeToSalesName(storeMaster, 'lower');
 
-    // Build normalized DISPO store name lookup (lowercase → original)
-    const normToDispoName = new Map<string, string>();
+    // Normalized sales-store name lookup (lowercase → original sales key).
+    const normToSalesName = new Map<string, string>();
     for (const monthData of Object.values(dispoData.sales)) {
       for (const store of Object.keys(monthData)) {
-        normToDispoName.set(store.toLowerCase().trim(), store);
+        normToSalesName.set(store.toLowerCase().trim(), store);
       }
     }
 
-    // Build email → storeName and email → storeCode maps from visit data
-    const storeMap = new Map<string, string>();
-    const storeCodeMap = new Map<string, string>();
+    // Per-BA visit aggregates across the WHOLE visit history.
+    //   storeCounts: email → (storeName → #visits)
+    //   codeByStoreName: "email|storeName" → that store's Perigee code
+    const storeCounts = new Map<string, Map<string, number>>();
+    const codeByStoreName = new Map<string, string>();
     for (const meta of visitIndex) {
       const visits = await loadVisitData(meta.id);
       for (const v of visits) {
-        if (v.email) {
-          const emailKey = v.email.toLowerCase();
-          if (v.storeName) storeMap.set(emailKey, v.storeName);
-          if (v.storeCode) storeCodeMap.set(emailKey, v.storeCode);
+        if (!v.email || !v.storeName) continue;
+        const emailKey = v.email.toLowerCase();
+        if (!storeCounts.has(emailKey)) storeCounts.set(emailKey, new Map());
+        const m = storeCounts.get(emailKey)!;
+        m.set(v.storeName, (m.get(v.storeName) || 0) + 1);
+        if (v.storeCode) codeByStoreName.set(`${emailKey}|${v.storeName.toLowerCase().trim()}`, v.storeCode);
+      }
+    }
+
+    // A BA's PRIMARY store = the one they visited most (deterministic tie-break
+    // by name). This replaces the old "whichever visit row was processed last"
+    // behaviour, which showed an arbitrary store.
+    const primaryStore = new Map<string, { name: string; code: string }>();
+    for (const [email, counts] of storeCounts) {
+      let bestName = '';
+      let bestCount = -1;
+      for (const [name, c] of counts) {
+        if (c > bestCount || (c === bestCount && name.localeCompare(bestName) < 0)) {
+          bestCount = c;
+          bestName = name;
         }
       }
+      const code = codeByStoreName.get(`${email}|${bestName.toLowerCase().trim()}`) || '';
+      primaryStore.set(email, { name: bestName, code });
     }
 
-    // Resolve BA email → DISPO store name (for sales lookup)
-    const baDispoStore = new Map<string, string>();
-    for (const [email] of storeMap) {
-      const visitCode = storeCodeMap.get(email);
-      const visitName = storeMap.get(email) || '';
-
-      if (visitCode) {
-        const dispoName = codeToDispoName.get(visitCode.toLowerCase().trim());
-        if (dispoName) { baDispoStore.set(email, dispoName); continue; }
-      }
-
-      const normVisitName = visitName.toLowerCase().trim();
-      if (normVisitName) {
-        const dispoName = normToDispoName.get(normVisitName);
-        if (dispoName) { baDispoStore.set(email, dispoName); continue; }
-      }
-
-      if (visitName) {
-        baDispoStore.set(email, visitName);
-      }
-    }
-
-    // Explicit store→BA assignments override the visit-derived store, so a
-    // reassigned store's sales follow the assigned BA (storeName is the DISPO name).
+    // Explicit BA assignment overrides both the displayed store and the sales
+    // attribution (e.g. a store that changed hands).
+    const assignedStoreByEmail = new Map<string, string>();
     for (const s of storeMaster) {
-      if (s.assignedBaEmail && s.storeName) {
-        baDispoStore.set(s.assignedBaEmail.toLowerCase(), s.storeName);
+      if (s.assignedBaEmail) {
+        assignedStoreByEmail.set(s.assignedBaEmail.toLowerCase(), storeSalesKey(s) || s.storeName);
       }
     }
+
+    // Display store per BA: assigned store wins, else most-visited store.
+    const displayStore = new Map<string, string>();
+    for (const [email, p] of primaryStore) displayStore.set(email, p.name);
+    for (const [email, name] of assignedStoreByEmail) displayStore.set(email, name);
+
+    // Resolve BA email → sales-data store name (for the sales lookup), going
+    // through the Perigee→sales link first.
+    const baDispoStore = new Map<string, string>();
+    for (const [email, p] of primaryStore) {
+      if (p.code) {
+        const sn = codeToSalesName[p.code.toLowerCase().trim()];
+        if (sn) { baDispoStore.set(email, sn); continue; }
+      }
+      const norm = p.name.toLowerCase().trim();
+      if (norm && normToSalesName.has(norm)) { baDispoStore.set(email, normToSalesName.get(norm)!); continue; }
+      if (p.name) baDispoStore.set(email, p.name);
+    }
+    for (const [email, name] of assignedStoreByEmail) baDispoStore.set(email, name);
 
     const baMap = new Map<string, LeaderboardEntry>();
 
@@ -138,7 +151,7 @@ export async function GET(req: NextRequest) {
       for (const s of scores) {
         const key = s.email.toLowerCase();
         if (!baMap.has(key)) {
-          baMap.set(key, { email: s.email, repName: s.repName, storeName: storeMap.get(key) || '', scores: {} });
+          baMap.set(key, { email: s.email, repName: s.repName, storeName: displayStore.get(key) || '', scores: {} });
         }
         const entry = baMap.get(key)!;
         if (s.repName) entry.repName = s.repName;

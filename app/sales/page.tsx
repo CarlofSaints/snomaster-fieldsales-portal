@@ -18,6 +18,9 @@ interface StoreMasterEntry {
   storeName: string;
   channelId: string;
   channelName?: string;
+  perigeeCode?: string;
+  salesName?: string;
+  salesCode?: string;
 }
 
 interface Channel {
@@ -198,21 +201,34 @@ export default function SalesPage() {
     return { currentMonth: months[0], prevMonth: months.length > 1 ? months[1] : '' };
   }, [months, monthFilter]);
 
-  // Map siteCode → storeName (from store master) for visit matching
+  // Map ANY store code (Perigee/sales/legacy) → sales-data store name, so a
+  // visit's Perigee storeCode resolves to the linked sales feed.
   const siteCodeToStoreName = useMemo(() => {
     const map: Record<string, string> = {};
     for (const s of storeMaster) {
-      if (s.siteCode) map[s.siteCode] = s.storeName;
+      const name = s.salesName || s.storeName;
+      if (!name) continue;
+      for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
+        if (code && code.trim() && !(code in map)) map[code] = name;
+      }
     }
     return map;
   }, [storeMaster]);
 
-  // Bridge: target siteCode → DISPO storeName via store master
-  // Target file has its own siteCode (col B) and storeName (col A) which differ from DISPO names
+  // Bridge: target siteCode → DISPO storeName via store master.
+  // Target file has its own siteCode (col B) and storeName (col A) which differ
+  // from DISPO names; match it against every store code we know.
   const targetSiteCodeToDispo = useMemo(() => {
     const map: Record<string, string> = {};
     for (const sm of storeMaster) {
-      if (sm.siteCode) map[sm.siteCode.trim().toUpperCase()] = sm.storeName;
+      const name = sm.salesName || sm.storeName;
+      if (!name) continue;
+      for (const code of [sm.perigeeCode, sm.salesCode, sm.siteCode]) {
+        if (code && code.trim()) {
+          const k = code.trim().toUpperCase();
+          if (!(k in map)) map[k] = name;
+        }
+      }
     }
     return map;
   }, [storeMaster]);

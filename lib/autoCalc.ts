@@ -10,7 +10,7 @@ import { loadVisitIndex, loadVisitData } from './visitData';
 import { loadScoringConfig } from './scoringConfig';
 import { loadTargetData, getStoreTarget } from './targetData';
 import { loadDispoData, calcSalesValue } from './dispoData';
-import { loadStores } from './storeData';
+import { loadStores, buildCodeToSalesName, buildAssignmentByCode, storeSalesKey } from './storeData';
 import { loadKPIControls } from './kpiControls';
 import { countDisplayChecksForMonth } from './displayData';
 import { countTrainingsForMonth } from './trainingData';
@@ -75,24 +75,17 @@ export async function calcSalesScores(month: string): Promise<SalesResult[]> {
   ]);
 
   const salesThreshold = kpiControls.salesThresholdPct ?? 80;
-  const siteCodeToName: Record<string, string> = {};
-  for (const s of stores) {
-    if (s.siteCode) siteCodeToName[s.siteCode.trim().toUpperCase()] = s.storeName;
-  }
+  // Any store code (Perigee visit code, sales code, legacy siteCode) → the
+  // store's sales-data name. This is what links a visit's Perigee storeCode to
+  // the channel sales feed once a store has been linked on the Stores page.
+  const siteCodeToName = buildCodeToSalesName(stores, 'upper');
 
-  // Explicit store→BA assignments (siteCode upper → assigned BA). When a store is
-  // assigned, its sales credit the assigned BA and are NOT credited to whoever
-  // happened to visit it (e.g. a departed BA still on record in Perigee).
-  const assignedByCode = new Map<string, { email: string; repName: string; storeName: string }>();
-  for (const s of stores) {
-    if (s.assignedBaEmail && s.siteCode) {
-      assignedByCode.set(s.siteCode.trim().toUpperCase(), {
-        email: s.assignedBaEmail.toLowerCase(),
-        repName: s.assignedBaName || s.assignedBaEmail,
-        storeName: s.storeName,
-      });
-    }
-  }
+  // Explicit store→BA assignments, keyed by EVERY code (Perigee + sales) so a
+  // visit (Perigee code) is correctly skipped when a store is assigned away.
+  // When a store is assigned, its sales credit the assigned BA and are NOT
+  // credited to whoever happened to visit it (e.g. a departed BA still on
+  // record in Perigee).
+  const assignedByCode = buildAssignmentByCode(stores, 'upper');
 
   const baStores = new Map<string, { repName: string; stores: Map<string, string> }>();
   for (const upload of visitIndex) {
@@ -113,12 +106,21 @@ export async function calcSalesScores(month: string): Promise<SalesResult[]> {
     }
   }
 
-  // Attribute each assigned store's sales to its assigned BA.
-  for (const [code, a] of assignedByCode) {
-    if (!baStores.has(a.email)) baStores.set(a.email, { repName: a.repName, stores: new Map() });
-    const entry = baStores.get(a.email)!;
-    entry.repName = a.repName;
-    entry.stores.set(code, a.storeName);
+  // Attribute each explicitly-assigned store's sales to its assigned BA.
+  // Iterate stores (not the multi-keyed assignment map) so each store is added
+  // exactly once. The target code prefers the legacy/sales code to preserve
+  // existing target lookups.
+  for (const s of stores) {
+    if (!s.assignedBaEmail) continue;
+    const salesName = storeSalesKey(s);
+    if (!salesName) continue;
+    const email = s.assignedBaEmail.toLowerCase();
+    const repName = s.assignedBaName || s.assignedBaEmail;
+    const targetCode = (s.siteCode || s.salesCode || s.perigeeCode || '').trim().toUpperCase();
+    if (!baStores.has(email)) baStores.set(email, { repName, stores: new Map() });
+    const entry = baStores.get(email)!;
+    entry.repName = repName;
+    entry.stores.set(targetCode, salesName);
   }
 
   const rawMonthSales = dispoData.sales[dispoMonth] || {};

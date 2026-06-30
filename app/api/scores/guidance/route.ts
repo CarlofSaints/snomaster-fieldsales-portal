@@ -4,7 +4,7 @@ import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
 import { loadScoringConfig } from '@/lib/scoringConfig';
 import { loadTargetData, getStoreTarget } from '@/lib/targetData';
 import { loadDispoData, calcSalesValue } from '@/lib/dispoData';
-import { loadStores } from '@/lib/storeData';
+import { loadStores, buildCodeToSalesName } from '@/lib/storeData';
 import { loadKPIControls } from '@/lib/kpiControls';
 import { countDisplayChecksForMonth } from '@/lib/displayData';
 import { countTrainingsForMonth } from '@/lib/trainingData';
@@ -89,10 +89,7 @@ export async function GET(req: NextRequest) {
     const dispoMonth = toDispoMonth(month);
     const salesThreshold = kpiControls.salesThresholdPct ?? 80;
 
-    const siteCodeToName: Record<string, string> = {};
-    for (const s of stores) {
-      if (s.siteCode) siteCodeToName[s.siteCode.trim().toUpperCase()] = s.storeName;
-    }
+    const siteCodeToName = buildCodeToSalesName(stores, 'upper');
 
     // Find stores this BA visited
     const baStoreMap = new Map<string, string>();

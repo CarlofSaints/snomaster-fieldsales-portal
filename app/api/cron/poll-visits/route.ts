@@ -6,6 +6,7 @@ import { requireRole } from '@/lib/auth';
 import { logActivity } from '@/lib/activityLog';
 import { runAutoCalcForMonth } from '@/lib/autoCalc';
 import { loadPerigeeConfig, savePerigeeConfig, activeTokens, fetchAllVisits, mapPerigeeVisit } from '@/lib/perigee';
+import { syncVisitedStores } from '@/lib/storeData';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -186,6 +187,9 @@ export async function GET(req: NextRequest) {
       rowCount: newVisits.length,
     });
     await saveVisitIndex(index);
+
+    // Keep the store master in sync with newly-visited stores.
+    try { await syncVisitedStores(newVisits); } catch (e) { console.error('syncVisitedStores failed:', e); }
 
     // Auto-seed scores
     await seedScoresFromVisits('Cron (auto-seed)');

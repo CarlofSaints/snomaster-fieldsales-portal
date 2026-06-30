@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, noCacheHeaders } from '@/lib/auth';
 import { loadDispoData, saveDispoData, DispoUploadMeta } from '@/lib/dispoData';
-import { loadStores, saveStores } from '@/lib/storeData';
+import { loadStores, saveStores, linkSalesStores } from '@/lib/storeData';
 import { writeJson } from '@/lib/blob';
 import { logFromUser } from '@/lib/activityLog';
 import { runAutoCalcForMonth } from '@/lib/autoCalc';
@@ -266,10 +266,9 @@ export async function POST(req: NextRequest) {
       data.sales[monthKey] = {};
     }
 
-    // Load store master for new-store detection
-    const storeMaster = await loadStores();
-    const existingStoreNames = new Set(storeMaster.map(s => s.storeName));
-    const newStoreEntries: { siteCode: string; storeName: string }[] = [];
+    // Collect the distinct sales stores in this file (siteName → siteCode) so we
+    // can link them to the master (Perigee) stores after parsing.
+    const salesStoreMap = new Map<string, string>();
 
     // Process data rows
     for (let i = dataStartIdx; i < rows.length; i++) {
@@ -285,11 +284,8 @@ export async function POST(req: NextRequest) {
       allProducts.add(articleDesc);
       rowCount++;
 
-      // Track new stores
-      if (!existingStoreNames.has(siteName)) {
-        existingStoreNames.add(siteName);
-        newStoreEntries.push({ siteCode, storeName: siteName });
-      }
+      // Track distinct sales stores for linking
+      if (!salesStoreMap.has(siteName)) salesStoreMap.set(siteName, siteCode);
 
       const rowSales: Record<string, number> = {};
 
@@ -347,13 +343,13 @@ export async function POST(req: NextRequest) {
     // Save raw data for rebuild-on-delete
     await writeJson(`dispo/raw/${uploadId}.json`, { rows: rawRows, monthMap });
 
-    // Update store master with new stores
-    if (newStoreEntries.length > 0) {
-      for (const entry of newStoreEntries) {
-        storeMaster.push({ siteCode: entry.siteCode, storeName: entry.storeName, channelId: '' });
-      }
-      await saveStores(storeMaster);
-    }
+    // Link this file's sales stores to the master (Perigee) stores. Matched
+    // stores get their sales feed attached; unmatched ones are created as new
+    // sales-sourced rows for an admin to link or mark "Not in data".
+    const storeMaster = await loadStores();
+    const salesStores = Array.from(salesStoreMap, ([siteName, code]) => ({ siteCode: code, siteName }));
+    const linkResult = linkSalesStores(storeMaster, salesStores);
+    await saveStores(linkResult.stores);
 
     await saveDispoData(data);
 
@@ -382,7 +378,8 @@ export async function POST(req: NextRequest) {
       currentMonth: currentMonthKey,
       headerRow: headerIdx + 1,
       dataStartRow: dataStartIdx + 1,
-      newStoreNames: newStoreEntries.map(e => e.storeName),
+      newStoreNames: linkResult.createdNames,
+      storesLinked: linkResult.matched,
       autoCalc: autoCalcResults,
     }, { headers: noCacheHeaders() });
   } catch (err) {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, noCacheHeaders } from '@/lib/auth';
 import { loadTargetData, getStoreTarget } from '@/lib/targetData';
 import { loadDispoData, calcSalesValue } from '@/lib/dispoData';
-import { loadStores } from '@/lib/storeData';
+import { loadStores, buildCodeToSalesName } from '@/lib/storeData';
 import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
 import { loadKPIControls } from '@/lib/kpiControls';
 
@@ -42,11 +42,8 @@ export async function POST(req: NextRequest) {
 
     const salesThreshold = kpiControls.salesThresholdPct ?? 80;
 
-    // Build store master lookup: UPPERCASE siteCode → storeName
-    const siteCodeToName: Record<string, string> = {};
-    for (const s of stores) {
-      if (s.siteCode) siteCodeToName[s.siteCode.trim().toUpperCase()] = s.storeName;
-    }
+    // Any store code (Perigee/sales/legacy) → sales-data store name.
+    const siteCodeToName = buildCodeToSalesName(stores, 'upper');
 
     // Load all visits and group by BA email → set of stores visited in this month
     // Track both siteCode and storeName for each store

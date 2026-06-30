@@ -3,6 +3,7 @@ import { requireRole, noCacheHeaders } from '@/lib/auth';
 import { Visit, loadVisitIndex, saveVisitIndex, saveVisitData, loadVisitData, visitDedupeKey } from '@/lib/visitData';
 import { seedScoresFromVisits } from '@/lib/seedScores';
 import { loadPerigeeConfig, savePerigeeConfig, activeTokens, fetchAllVisits, mapPerigeeVisit } from '@/lib/perigee';
+import { syncVisitedStores } from '@/lib/storeData';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -139,6 +140,9 @@ export async function POST(req: NextRequest) {
       rowCount: newVisits.length,
     });
     await saveVisitIndex(index);
+
+    // Keep the store master in sync with newly-visited stores.
+    try { await syncVisitedStores(newVisits); } catch (e) { console.error('syncVisitedStores failed:', e); }
 
     const seedResult = await seedScoresFromVisits(`${user.name} ${user.surname} (auto-seed)`);
 

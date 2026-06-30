@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
 import { loadChannels, Channel } from '@/lib/channelData';
-import { loadStores, StoreMaster } from '@/lib/storeData';
+import { loadStores, StoreMaster, buildCodeToSalesName } from '@/lib/storeData';
 import { loadProducts, ProductMaster } from '@/lib/productData';
 import { loadDispoData, calcSalesValue, DispoSalesData, DispoUploadMeta } from '@/lib/dispoData';
 import { loadVisitIndex, loadVisitData, Visit } from '@/lib/visitData';
@@ -38,10 +38,10 @@ function dispoMonthKey(mm: string, year: number): string {
  * Keys: visit storeName, visit storeCode, AND store master storeName (all lowercase).
  */
 function buildBaMap(visits: Visit[], stores: StoreMaster[]): Record<string, string> {
-  // Also build storeCode → storeName bridge from store master
+  // Bridge ANY store code (Perigee/sales/legacy) → the sales-data store name.
   const codeToName: Record<string, string> = {};
-  for (const s of stores) {
-    if (s.siteCode) codeToName[s.siteCode.toLowerCase().trim()] = s.storeName.toLowerCase().trim();
+  for (const [k, v] of Object.entries(buildCodeToSalesName(stores, 'lower'))) {
+    codeToName[k] = v.toLowerCase().trim();
   }
 
   // Sort by date desc so we keep the most recent BA per store
@@ -71,10 +71,10 @@ function buildBaMap(visits: Visit[], stores: StoreMaster[]): Record<string, stri
   // BA wins regardless of which key matches.
   for (const s of stores) {
     if (!s.assignedBaName) continue;
-    const nameKey = (s.storeName || '').toLowerCase().trim();
-    const codeKey = (s.siteCode || '').toLowerCase().trim();
-    if (nameKey) map[nameKey] = s.assignedBaName;
-    if (codeKey) map[codeKey] = s.assignedBaName;
+    for (const k of [s.storeName, s.salesName, s.perigeeCode, s.salesCode, s.siteCode]) {
+      const kk = (k || '').toLowerCase().trim();
+      if (kk) map[kk] = s.assignedBaName;
+    }
   }
   return map;
 }
@@ -84,8 +84,8 @@ function buildBaMap(visits: Visit[], stores: StoreMaster[]): Record<string, stri
  */
 function buildDisplaySet(records: DisplayRecord[], stores: StoreMaster[]): Set<string> {
   const codeToName: Record<string, string> = {};
-  for (const s of stores) {
-    if (s.siteCode) codeToName[s.siteCode.toLowerCase().trim()] = s.storeName.toLowerCase().trim();
+  for (const [k, v] of Object.entries(buildCodeToSalesName(stores, 'lower'))) {
+    codeToName[k] = v.toLowerCase().trim();
   }
 
   const set = new Set<string>();
@@ -127,9 +127,12 @@ function buildStoreLookup(
 ): Record<string, { area: string; mainChannel: string; subChannel: string }> {
   const map: Record<string, { area: string; mainChannel: string; subChannel: string }> = {};
   for (const s of stores) {
-    const key = s.storeName.toLowerCase().trim();
     const ch = channelLookup[s.channelId] || { mainName: '', subName: '' };
-    map[key] = { area: s.area || '', mainChannel: ch.mainName, subChannel: ch.subName };
+    const info = { area: s.area || '', mainChannel: ch.mainName, subChannel: ch.subName };
+    for (const nm of [s.storeName, s.salesName]) {
+      const key = (nm || '').toLowerCase().trim();
+      if (key) map[key] = info;
+    }
   }
   return map;
 }
@@ -290,11 +293,16 @@ export async function GET(req: NextRequest) {
     productLookup.set(p.articleDesc.toLowerCase().trim(), p);
   }
 
-  // storeName (lowercase) → siteCode (lowercase) for fallback BA/display lookups
+  // sales/store name (lowercase) → store code for fallback BA/display lookups.
+  // Prefer the Perigee code so a sales-feed store bridges to the BA who visits
+  // it (baMap/displaySet are keyed by the visit's Perigee code).
   const nameToCode: Record<string, string> = {};
   for (const s of stores) {
-    if (s.siteCode && s.storeName) {
-      nameToCode[s.storeName.toLowerCase().trim()] = s.siteCode.toLowerCase().trim();
+    const code = (s.perigeeCode || s.salesCode || s.siteCode || '').toLowerCase().trim();
+    if (!code) continue;
+    for (const nm of [s.salesName, s.storeName]) {
+      const key = (nm || '').toLowerCase().trim();
+      if (key && !nameToCode[key]) nameToCode[key] = code;
     }
   }
 
