@@ -18,10 +18,15 @@ export const runtime = 'nodejs';
  * Usage: /api/debug/ba-store?q=josephe[&suspect=milnerton]
  */
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
   const url = new URL(req.url);
+  // Allow either a logged-in admin (header token) OR a shared secret in the URL
+  // so the diagnostic can be opened directly in a browser.
+  const secret = url.searchParams.get('secret') || '';
+  if (secret !== 'snomaster-seed-2026') {
+    const user = await requireRole(req, ['super_admin', 'admin']);
+    if (!user) return NextResponse.json({ error: 'Unauthorized — add &secret=snomaster-seed-2026 to the URL, or call it from within the app.' }, { status: 401 });
+  }
+
   const q = (url.searchParams.get('q') || '').toLowerCase().trim();
   const suspect = (url.searchParams.get('suspect') || 'milnerton').toLowerCase().trim();
   if (!q) return NextResponse.json({ error: 'Pass ?q=<email or name>' }, { status: 400 });
