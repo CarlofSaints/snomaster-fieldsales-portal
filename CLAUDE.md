@@ -46,8 +46,14 @@ full scoring + report architecture — identical code.)
   sales summed per month, stock = latest period in month). **Overlap blocked** at upload with a popup
   (data is a period sum, can't de-overlap). Routes `/api/hirsch/upload|GET|delete/[id]`; upload UI
   section on `/upload`. Validated vs the sample file (per-branch totals == file's Grand Totals ±R1).
-  **STILL TO DO:** (1) wire Hirsch sales into scoring/reports (Phase B); (2) **site-file upload** to name
-  branches/stores by site code — Carl to provide real Makro + Hirsch site master files.
+  **Site-file upload DONE** (`lib/siteFileData.ts`, `/api/site-file`): Makro + Hirsch `MASTER_SITE`
+  files name stores by code (Makro drops MASSBUILD; Hirsch keeps all). Stores page shows resolved names.
+  **Phase B DONE** (2026-06-30): Hirsch sales wired into scoring + leaderboard. On upload, branches are
+  linked into the store master (named via site file) + sales recalculated. Sales KPI now: targeted
+  stores score vs target (Makro, unchanged); **untargeted stores (Hirsch, and any Makro w/o a target)
+  score vs PREVIOUS MONTH's actual** (no targets loaded yet → everything is prev-month-based for now;
+  add targets later to switch those stores to target-based). Leaderboard salesVal/Vol = Makro + Hirsch
+  combined. ⚠ NEEDS LIVE VERIFICATION with real visits+sales+linked stores.
 
 ## Store Master = Canonical Hub (2026-06-30 rework)
 The store master (`admin/stores.json`, `lib/storeData.ts`) is now the single source of truth, keyed by

@@ -3,7 +3,8 @@ import { requireAnyUser, noCacheHeaders } from '@/lib/auth';
 import { loadScores, calcTotal, calcGrandTotal, BAScore } from '@/lib/scoreData';
 import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
 import { loadDispoData } from '@/lib/dispoData';
-import { loadStores, buildCodeToSalesName, storeSalesKey } from '@/lib/storeData';
+import { loadStores, buildCodeToSalesName, storeSalesKey, normalizeCode } from '@/lib/storeData';
+import { loadHirschData } from '@/lib/hirschData';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,11 +63,29 @@ export async function GET(req: NextRequest) {
     const months = getLastNMonths(monthCount);
 
     // Load visit index, DISPO data, and store master in parallel
-    const [visitIndex, dispoData, storeMaster] = await Promise.all([
+    const [visitIndex, dispoData, storeMaster, hirschData] = await Promise.all([
       loadVisitIndex(),
       loadDispoData(),
       loadStores(),
+      loadHirschData(),
     ]);
+
+    // Resolve a BA to their store's Hirsch branch code (its salesCode) so we can
+    // add Hirsch sales. Assignment wins; else the most-visited store's code.
+    const anyCodeToSalesCode = new Map<string, string>();
+    for (const s of storeMaster) {
+      if (!s.salesCode) continue;
+      for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
+        if (code && code.trim()) {
+          const k = normalizeCode(code);
+          if (!anyCodeToSalesCode.has(k)) anyCodeToSalesCode.set(k, s.salesCode);
+        }
+      }
+    }
+    const assignedBranchByEmail = new Map<string, string>();
+    for (const s of storeMaster) {
+      if (s.assignedBaEmail && s.salesCode) assignedBranchByEmail.set(s.assignedBaEmail.toLowerCase(), s.salesCode);
+    }
 
     // Any store code (Perigee/sales/legacy) → the store's sales-data name.
     const codeToSalesName = buildCodeToSalesName(storeMaster, 'lower');
@@ -158,12 +177,14 @@ export async function GET(req: NextRequest) {
 
         const monthScore = buildMonthScore(s);
 
-        // Add DISPO sales data if available
+        // Sales = Makro DISPO value + Hirsch's value for the BA's store.
+        let vol = 0, val = 0, hasSales = false;
+
         const dispoStoreName = baDispoStore.get(key);
         if (dispoStoreName) {
           const storeSales = dispoData.sales[dispoMonthKey]?.[dispoStoreName];
           if (storeSales) {
-            let vol = 0, val = 0;
+            hasSales = true;
             for (const [article, units] of Object.entries(storeSales)) {
               vol += units;
               const p = dispoData.prices[article];
@@ -172,9 +193,21 @@ export async function GET(req: NextRequest) {
                 val += units * price;
               }
             }
-            monthScore.salesVol = vol;
-            monthScore.salesVal = val;
           }
+        }
+
+        // Hirsch's sales (direct Rand) for the BA's store branch.
+        const branch = assignedBranchByEmail.get(key) || anyCodeToSalesCode.get(normalizeCode(primaryStore.get(key)?.code || ''));
+        if (branch) {
+          const hb = hirschData.sales[dispoMonthKey]?.[branch];
+          if (hb) {
+            for (const cell of Object.values(hb)) { vol += cell.qty; val += cell.val; hasSales = true; }
+          }
+        }
+
+        if (hasSales) {
+          monthScore.salesVol = vol;
+          monthScore.salesVal = val;
         }
 
         entry.scores[month] = monthScore;

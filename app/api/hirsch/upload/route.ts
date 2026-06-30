@@ -6,6 +6,9 @@ import {
   findOverlap, rebuildHirschAggregates, HirschUploadMeta,
 } from '@/lib/hirschData';
 import { logFromUser } from '@/lib/activityLog';
+import { loadStores, saveStores, linkSalesStores, normalizeCode } from '@/lib/storeData';
+import { loadSiteFileData, buildSiteLookup } from '@/lib/siteFileData';
+import { runAutoCalcForMonth } from '@/lib/autoCalc';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -86,6 +89,30 @@ export async function POST(req: NextRequest) {
     data.stock = agg.stock;
     data.items = agg.items;
     await saveHirschData(data);
+
+    // Link this file's branches into the store master (named via the site file)
+    // so they appear on the Stores page and can be matched to visited stores.
+    try {
+      const siteLookup = buildSiteLookup(await loadSiteFileData());
+      const branchSet = new Set(rows.map(r => r.branch));
+      const salesStores = Array.from(branchSet, branch => ({
+        siteCode: branch,
+        siteName: siteLookup.get(normalizeCode(branch))?.storeName || branch,
+      }));
+      const stores = await loadStores();
+      const linkResult = linkSalesStores(stores, salesStores);
+      await saveStores(linkResult.stores);
+    } catch (e) {
+      console.error('Hirsch store-master link failed:', e);
+    }
+
+    // Recalculate sales scores for this month (MM-YYYY → YYYY-MM).
+    try {
+      const [mm, yyyy] = month!.split('-');
+      await runAutoCalcForMonth(`${yyyy}-${mm}`, ['sales']);
+    } catch (e) {
+      console.error('Hirsch auto-calc failed:', e);
+    }
 
     logFromUser(user, 'upload_hirsch', `hirsch/${id}`, `Uploaded Hirsch's ${fmtDate(periodStart!)}–${fmtDate(periodEnd!)}: ${rows.length} rows, ${branches.size} branches, R${Math.round(meta.salesVal).toLocaleString()} sales.`);
 

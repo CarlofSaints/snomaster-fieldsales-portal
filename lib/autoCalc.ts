@@ -10,6 +10,7 @@ import { loadVisitIndex, loadVisitData } from './visitData';
 import { loadScoringConfig } from './scoringConfig';
 import { loadTargetData, getStoreTarget } from './targetData';
 import { loadDispoData, calcSalesValue } from './dispoData';
+import { loadHirschData } from './hirschData';
 import { loadStores, buildCodeToSalesName, buildAssignmentByCode, storeSalesKey } from './storeData';
 import { loadKPIControls } from './kpiControls';
 import { countDisplayChecksForMonth } from './displayData';
@@ -68,96 +69,142 @@ function toDispoMonth(yyyyMm: string): string {
   return `${mm}-${yyyy}`;
 }
 
+/** Previous YYYY-MM for a given YYYY-MM. */
+function prevYyyyMm(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Build an UPPER store-name → products lookup for a DISPO month. */
+function normSalesForMonth(dispoData: Awaited<ReturnType<typeof loadDispoData>>, dispoMonth: string): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const [key, products] of Object.entries(dispoData.sales[dispoMonth] || {})) {
+    out[key.trim().toUpperCase()] = products;
+  }
+  return out;
+}
+
 export async function calcSalesScores(month: string): Promise<SalesResult[]> {
   const dispoMonth = toDispoMonth(month);
-  const [targetData, dispoData, stores, visitIndex, kpiControls] = await Promise.all([
-    loadTargetData(), loadDispoData(), loadStores(), loadVisitIndex(), loadKPIControls(),
+  const prevMonth = prevYyyyMm(month);
+  const prevDispoMonth = toDispoMonth(prevMonth);
+  const [targetData, dispoData, stores, visitIndex, kpiControls, hirschData] = await Promise.all([
+    loadTargetData(), loadDispoData(), loadStores(), loadVisitIndex(), loadKPIControls(), loadHirschData(),
   ]);
 
   const salesThreshold = kpiControls.salesThresholdPct ?? 80;
-  // Any store code (Perigee visit code, sales code, legacy siteCode) → the
-  // store's sales-data name. This is what links a visit's Perigee storeCode to
-  // the channel sales feed once a store has been linked on the Stores page.
+  // Any store code → the store's sales-data NAME (Makro DISPO lookup key).
   const siteCodeToName = buildCodeToSalesName(stores, 'upper');
+  // Any store code → the store's sales CODE (used for Hirsch branch lookup).
+  const anyCodeToSalesCode = new Map<string, string>();
+  for (const s of stores) {
+    if (!s.salesCode) continue;
+    for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
+      const k = (code || '').trim().toUpperCase();
+      if (k && !anyCodeToSalesCode.has(k)) anyCodeToSalesCode.set(k, s.salesCode);
+    }
+  }
+  // All branch codes Hirsch has any sales for (so we don't treat a Makro sales
+  // code as a Hirsch branch).
+  const hirschBranchSet = new Set<string>();
+  for (const monthData of Object.values(hirschData.sales)) {
+    for (const branch of Object.keys(monthData)) hirschBranchSet.add(branch);
+  }
 
-  // Explicit store→BA assignments, keyed by EVERY code (Perigee + sales) so a
-  // visit (Perigee code) is correctly skipped when a store is assigned away.
-  // When a store is assigned, its sales credit the assigned BA and are NOT
-  // credited to whoever happened to visit it (e.g. a departed BA still on
-  // record in Perigee).
+  // Explicit store→BA assignments, keyed by every code so a visit (Perigee code)
+  // is correctly skipped when a store is assigned away.
   const assignedByCode = buildAssignmentByCode(stores, 'upper');
 
-  const baStores = new Map<string, { repName: string; stores: Map<string, string> }>();
+  const baStores = new Map<string, { repName: string; stores: Map<string, string>; hirschBranches: Set<string> }>();
+  const ensure = (email: string, repName: string) => {
+    if (!baStores.has(email)) baStores.set(email, { repName, stores: new Map(), hirschBranches: new Set() });
+    return baStores.get(email)!;
+  };
+
   for (const upload of visitIndex) {
     const visits = await loadVisitData(upload.id);
     for (const v of visits) {
       if (!v.checkInDate || !v.email || !v.checkInDate.startsWith(month)) continue;
       const email = v.email.toLowerCase();
-      if (!baStores.has(email)) baStores.set(email, { repName: v.repName || v.email, stores: new Map() });
-      const entry = baStores.get(email)!;
+      const entry = ensure(email, v.repName || v.email);
       if (v.storeCode) {
         const code = v.storeCode.trim().toUpperCase();
-        const storeName = siteCodeToName[code];
-        // Skip stores that are explicitly assigned to another BA — they're
-        // attributed below to the assigned BA, not the visiting one.
-        if (storeName && !assignedByCode.has(code)) entry.stores.set(code, storeName);
+        // Skip stores explicitly assigned to another BA.
+        if (!assignedByCode.has(code)) {
+          const storeName = siteCodeToName[code];
+          if (storeName) entry.stores.set(code, storeName);
+          const branch = anyCodeToSalesCode.get(code);
+          if (branch && hirschBranchSet.has(branch)) entry.hirschBranches.add(branch);
+        }
       }
       if (v.repName) entry.repName = v.repName;
     }
   }
 
-  // Attribute each explicitly-assigned store's sales to its assigned BA.
-  // Iterate stores (not the multi-keyed assignment map) so each store is added
-  // exactly once. The target code prefers the legacy/sales code to preserve
-  // existing target lookups.
+  // Attribute each explicitly-assigned store to its assigned BA (once).
   for (const s of stores) {
     if (!s.assignedBaEmail) continue;
     const salesName = storeSalesKey(s);
-    if (!salesName) continue;
     const email = s.assignedBaEmail.toLowerCase();
-    const repName = s.assignedBaName || s.assignedBaEmail;
+    const entry = ensure(email, s.assignedBaName || s.assignedBaEmail);
+    entry.repName = s.assignedBaName || s.assignedBaEmail;
     const targetCode = (s.siteCode || s.salesCode || s.perigeeCode || '').trim().toUpperCase();
-    if (!baStores.has(email)) baStores.set(email, { repName, stores: new Map() });
-    const entry = baStores.get(email)!;
-    entry.repName = repName;
-    entry.stores.set(targetCode, salesName);
+    if (salesName) entry.stores.set(targetCode, salesName);
+    if (s.salesCode && hirschBranchSet.has(s.salesCode)) entry.hirschBranches.add(s.salesCode);
   }
 
-  const rawMonthSales = dispoData.sales[dispoMonth] || {};
-  const monthSalesNorm: Record<string, Record<string, number>> = {};
-  for (const [key, products] of Object.entries(rawMonthSales)) {
-    monthSalesNorm[key.trim().toUpperCase()] = products;
-  }
+  const normNow = normSalesForMonth(dispoData, dispoMonth);
+  const normPrev = normSalesForMonth(dispoData, prevDispoMonth);
+
+  // Makro value for a store name in a given normalized-month lookup.
+  const makroVal = (norm: Record<string, Record<string, number>>, storeName: string): number => {
+    const products = norm[storeName.trim().toUpperCase()];
+    if (!products) return 0;
+    let v = 0;
+    for (const [article, units] of Object.entries(products)) v += calcSalesValue(units, dispoData.prices[article]);
+    return v;
+  };
+  // Hirsch value for a set of branches in a given month key.
+  const hirschVal = (monthKey: string, branches: Set<string>): number => {
+    const m = hirschData.sales[monthKey];
+    if (!m) return 0;
+    let v = 0;
+    for (const b of branches) {
+      const cell = m[b];
+      if (cell) for (const c of Object.values(cell)) v += c.val;
+    }
+    return v;
+  };
 
   const results: SalesResult[] = [];
-  for (const [email, { repName, stores: baStoreMap }] of baStores) {
+  for (const [email, { repName, stores: baStoreMap, hirschBranches }] of baStores) {
+    // Targeted (Makro stores that have a loaded target) — scored vs target.
     let totalValueTarget = 0;
-    let totalActualValue = 0;
-
+    let targetedActual = 0;
     for (const [siteCode, storeName] of baStoreMap) {
       const target = getStoreTarget(targetData.targets, dispoMonth, siteCode);
       if (!target) continue;
       totalValueTarget += target.valueTarget;
-      const storeProducts = monthSalesNorm[storeName.trim().toUpperCase()];
-      if (storeProducts) {
-        for (const [article, units] of Object.entries(storeProducts)) {
-          totalActualValue += calcSalesValue(units, dispoData.prices[article]);
-        }
+      targetedActual += makroVal(normNow, storeName);
+    }
+
+    let variance: number;
+    if (totalValueTarget > 0) {
+      variance = (targetedActual / totalValueTarget) * 100;
+    } else {
+      // No targets → score vs the previous month's actual (Makro + Hirsch).
+      let actualNow = hirschVal(dispoMonth, hirschBranches);
+      let actualPrev = hirschVal(prevDispoMonth, hirschBranches);
+      for (const storeName of baStoreMap.values()) {
+        actualNow += makroVal(normNow, storeName);
+        actualPrev += makroVal(normPrev, storeName);
       }
+      variance = actualPrev > 0 ? (actualNow / actualPrev) * 100 : 0;
     }
 
-    if (totalValueTarget === 0) {
-      results.push({ email, repName, variance: 0, points: 0 });
-      continue;
-    }
-
-    const variance = (totalActualValue / totalValueTarget) * 100;
     const points = variance < salesThreshold ? 0 : Math.min(40, Math.round((variance / 100) * 40));
-    results.push({
-      email, repName,
-      variance: Math.round(variance * 10) / 10,
-      points,
-    });
+    results.push({ email, repName, variance: Math.round(variance * 10) / 10, points });
   }
 
   return results;

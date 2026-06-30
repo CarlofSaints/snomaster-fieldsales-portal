@@ -4,6 +4,7 @@ import {
   loadHirschData, saveHirschData, loadHirschRaw, deleteHirschRaw, rebuildHirschAggregates,
 } from '@/lib/hirschData';
 import { logFromUser } from '@/lib/activityLog';
+import { runAutoCalcForMonth } from '@/lib/autoCalc';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   data.stock = agg.stock;
   data.items = agg.items;
   await saveHirschData(data);
+
+  try {
+    const [mm, yyyy] = meta.month.split('-');
+    await runAutoCalcForMonth(`${yyyy}-${mm}`, ['sales']);
+  } catch (e) {
+    console.error('Hirsch delete auto-calc failed:', e);
+  }
 
   logFromUser(user, 'delete_hirsch', `hirsch/${id}`, `Deleted Hirsch's upload ${meta.fileName} (${meta.periodStart}–${meta.periodEnd}).`);
   return NextResponse.json({ ok: true }, { headers: noCacheHeaders() });
