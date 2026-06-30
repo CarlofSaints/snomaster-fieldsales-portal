@@ -7,13 +7,19 @@ import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
 
 interface StoreMaster {
-  siteCode: string;
+  perigeeCode: string;
   storeName: string;
   channelId: string;
   channelName?: string;
   area?: string;
   assignedBaEmail?: string;
   assignedBaName?: string;
+  salesName?: string;
+  salesCode?: string;
+  notInData?: boolean;
+  source?: 'visit' | 'sales' | 'manual';
+  siteCode?: string;
+  _id: number; // runtime-only stable key
 }
 
 interface Channel {
@@ -27,15 +33,39 @@ interface BAOption {
   lastSeen: string;
 }
 
+type Tab = 'all' | 'needsLink' | 'orphanSales' | 'notInData' | 'linked';
+
+/** A store that has been visited (carries a Perigee code). */
+function isVisited(s: StoreMaster): boolean {
+  return !!(s.perigeeCode && s.perigeeCode.trim());
+}
+/** A store that has a sales feed linked. */
+function isLinked(s: StoreMaster): boolean {
+  return !!(s.salesName && s.salesName.trim());
+}
+/** Sales data with no matching visited store yet. */
+function isOrphanSales(s: StoreMaster): boolean {
+  return !isVisited(s) && isLinked(s);
+}
+/** Visited store that needs attention: no sales feed and not marked "not in data". */
+function needsLink(s: StoreMaster): boolean {
+  return isVisited(s) && !isLinked(s) && !s.notInData;
+}
+
 export default function StoresPage() {
   const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
   const [stores, setStores] = useState<StoreMaster[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [bas, setBas] = useState<BAOption[]>([]);
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<Tab>('all');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  // Link modal: pick a counterpart row to merge with `linkSource`.
+  const [linkSource, setLinkSource] = useState<StoreMaster | null>(null);
+  const [linkSearch, setLinkSearch] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -44,9 +74,13 @@ export default function StoresPage() {
         authFetch('/api/channels'),
         authFetch('/api/bas'),
       ]);
-      if (storesRes.ok) setStores(await storesRes.json());
+      if (storesRes.ok) {
+        const raw: StoreMaster[] = await storesRes.json();
+        setStores(raw.map((s, i) => ({ ...s, _id: i })));
+      }
       if (channelsRes.ok) setChannels(await channelsRes.json());
       if (basRes.ok) setBas(await basRes.json());
+      setDirty(false);
     } catch { /* ignore */ }
   }, []);
 
@@ -54,58 +88,106 @@ export default function StoresPage() {
     if (session) loadData();
   }, [session, loadData]);
 
+  const counts = useMemo(() => ({
+    all: stores.length,
+    needsLink: stores.filter(needsLink).length,
+    orphanSales: stores.filter(isOrphanSales).length,
+    notInData: stores.filter(s => s.notInData).length,
+    linked: stores.filter(isLinked).length,
+  }), [stores]);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return stores;
-    const q = search.toLowerCase();
-    return stores.filter(s =>
-      s.storeName.toLowerCase().includes(q) ||
-      s.siteCode.toLowerCase().includes(q) ||
-      (s.area || '').toLowerCase().includes(q)
-    );
-  }, [stores, search]);
+    let list = stores;
+    if (tab === 'needsLink') list = list.filter(needsLink);
+    else if (tab === 'orphanSales') list = list.filter(isOrphanSales);
+    else if (tab === 'notInData') list = list.filter(s => s.notInData);
+    else if (tab === 'linked') list = list.filter(isLinked);
 
-  function handleChannelChange(idx: number, channelId: string) {
-    const store = filtered[idx];
-    const realIdx = stores.findIndex(s => s.siteCode === store.siteCode && s.storeName === store.storeName);
-    if (realIdx === -1) return;
-    const updated = [...stores];
-    updated[realIdx] = { ...updated[realIdx], channelId };
-    setStores(updated);
+    const q = search.toLowerCase().trim();
+    if (q) {
+      list = list.filter(s =>
+        s.storeName.toLowerCase().includes(q) ||
+        (s.salesName || '').toLowerCase().includes(q) ||
+        (s.perigeeCode || '').toLowerCase().includes(q) ||
+        (s.salesCode || '').toLowerCase().includes(q) ||
+        (s.area || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [stores, tab, search]);
+
+  function update(id: number, patch: Partial<StoreMaster>) {
+    setStores(prev => prev.map(s => (s._id === id ? { ...s, ...patch } : s)));
     setDirty(true);
   }
 
-  function handleAreaChange(idx: number, area: string) {
-    const store = filtered[idx];
-    const realIdx = stores.findIndex(s => s.siteCode === store.siteCode && s.storeName === store.storeName);
-    if (realIdx === -1) return;
-    const updated = [...stores];
-    updated[realIdx] = { ...updated[realIdx], area };
-    setStores(updated);
+  function toggleNotInData(s: StoreMaster) {
+    update(s._id, { notInData: !s.notInData });
+  }
+
+  function unlinkSales(s: StoreMaster) {
+    // Detach the sales feed and re-create it as an orphan sales row so it can be
+    // re-linked later (the underlying sales data still exists, keyed by name).
+    setStores(prev => {
+      const next = prev.map(x => (x._id === s._id ? { ...x, salesName: '', salesCode: '', siteCode: '' } : x));
+      if (s.salesName) {
+        const newId = Math.max(0, ...next.map(x => x._id)) + 1;
+        next.push({
+          _id: newId, perigeeCode: '', storeName: s.salesName,
+          salesName: s.salesName, salesCode: s.salesCode || '', siteCode: s.salesCode || '',
+          channelId: '', source: 'sales',
+        });
+      }
+      return next;
+    });
     setDirty(true);
   }
 
-  function handleBaChange(idx: number, email: string) {
-    const store = filtered[idx];
-    const realIdx = stores.findIndex(s => s.siteCode === store.siteCode && s.storeName === store.storeName);
-    if (realIdx === -1) return;
-    const ba = bas.find(b => b.email === email);
-    const updated = [...stores];
-    updated[realIdx] = {
-      ...updated[realIdx],
-      assignedBaEmail: email || '',
-      assignedBaName: ba?.repName || '',
-    };
-    setStores(updated);
+  /** Merge a visited (Perigee) row and a sales row into one canonical row. */
+  function merge(visited: StoreMaster, sales: StoreMaster) {
+    setStores(prev => {
+      const next = prev
+        .filter(x => x._id !== sales._id)
+        .map(x => x._id === visited._id
+          ? { ...x, salesName: sales.salesName || '', salesCode: sales.salesCode || '', siteCode: sales.salesCode || '', channelId: x.channelId || sales.channelId }
+          : x);
+      return next;
+    });
     setDirty(true);
+    setLinkSource(null);
+    setLinkSearch('');
+    setToast({ msg: 'Linked — remember to Save', type: 'success' });
+  }
+
+  // Candidate rows for the link modal (opposite type of the source).
+  const linkCandidates = useMemo(() => {
+    if (!linkSource) return [];
+    const sourceIsVisited = isVisited(linkSource);
+    let list = stores.filter(s => s._id !== linkSource._id);
+    list = sourceIsVisited ? list.filter(isOrphanSales) : list.filter(s => isVisited(s) && !isLinked(s));
+    const q = linkSearch.toLowerCase().trim();
+    if (q) {
+      list = list.filter(s =>
+        s.storeName.toLowerCase().includes(q) ||
+        (s.salesName || '').toLowerCase().includes(q) ||
+        (s.perigeeCode || '').toLowerCase().includes(q) ||
+        (s.salesCode || '').toLowerCase().includes(q)
+      );
+    }
+    return list.slice(0, 100);
+  }, [linkSource, stores, linkSearch]);
+
+  function pickCandidate(candidate: StoreMaster) {
+    if (!linkSource) return;
+    const visited = isVisited(linkSource) ? linkSource : candidate;
+    const sales = isVisited(linkSource) ? candidate : linkSource;
+    merge(visited, sales);
   }
 
   async function handleSave() {
     setSaving(true);
     try {
-      const payload = stores.map(({ siteCode, storeName, channelId, area, assignedBaEmail, assignedBaName }) => ({
-        siteCode, storeName, channelId, area: area || '',
-        assignedBaEmail: assignedBaEmail || '', assignedBaName: assignedBaName || '',
-      }));
+      const payload = stores.map(({ _id, channelName, ...rest }) => { void _id; void channelName; return rest; });
       const res = await authFetch('/api/stores', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -114,6 +196,7 @@ export default function StoresPage() {
       if (res.ok) {
         setDirty(false);
         setToast({ msg: 'Stores saved', type: 'success' });
+        loadData();
       } else {
         const data = await res.json().catch(() => ({}));
         setToast({ msg: data.error || 'Save failed', type: 'error' });
@@ -129,7 +212,13 @@ export default function StoresPage() {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>Loading...</div>;
   }
 
-  const unassignedCount = stores.filter(s => !s.channelId).length;
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: counts.all },
+    { key: 'needsLink', label: 'Needs linking', count: counts.needsLink },
+    { key: 'orphanSales', label: 'Sales w/o store', count: counts.orphanSales },
+    { key: 'notInData', label: 'Not in data', count: counts.notInData },
+    { key: 'linked', label: 'Linked', count: counts.linked },
+  ];
 
   return (
     <div style={{ display: 'flex' }}>
@@ -139,14 +228,34 @@ export default function StoresPage() {
           Stores
         </h1>
         <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1rem' }}>
-          Manage store-to-channel assignments. Stores are auto-populated from DISPO uploads.
+          Every visited store appears here with its Perigee code. Link each store to its sales feed
+          (Makro / Hirsch&apos;s), or mark stores that have no sales data as &quot;Not in data&quot;.
         </p>
 
-        {unassignedCount > 0 && (
+        {counts.needsLink > 0 && (
           <div style={{ padding: '0.6rem 1rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: '0.8rem', color: '#92400e', marginBottom: '1rem' }}>
-            {unassignedCount} store{unassignedCount > 1 ? 's' : ''} without a channel assignment
+            {counts.needsLink} visited store{counts.needsLink > 1 ? 's' : ''} not yet linked to sales data — link them or mark &quot;Not in data&quot;.
           </div>
         )}
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className="btn"
+              style={{
+                fontSize: '0.78rem', padding: '0.35rem 0.7rem',
+                background: tab === t.key ? '#e31e1c' : '#f3f4f6',
+                color: tab === t.key ? 'white' : '#374151',
+                border: '1px solid ' + (tab === t.key ? '#e31e1c' : '#e5e7eb'),
+              }}
+            >
+              {t.label} <span style={{ opacity: 0.75 }}>({t.count})</span>
+            </button>
+          ))}
+        </div>
 
         {/* Controls */}
         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -157,11 +266,7 @@ export default function StoresPage() {
             onChange={e => setSearch(e.target.value)}
             style={{ minWidth: 200, maxWidth: 300 }}
           />
-          <button
-            className="btn btn-primary"
-            onClick={handleSave}
-            disabled={saving || !dirty}
-          >
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving || !dirty}>
             {saving ? 'Saving...' : 'Save All'}
           </button>
           {dirty && <span style={{ fontSize: '0.75rem', color: '#dc2626' }}>Unsaved changes</span>}
@@ -172,70 +277,117 @@ export default function StoresPage() {
 
         {/* Table */}
         <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden', flex: 1 }}>
-          <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
+          <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 320px)' }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: 100 }}>Site Code</th>
+                  <th style={{ width: 100 }}>Perigee Code</th>
                   <th>Store Name</th>
-                  <th style={{ width: 150 }}>Area</th>
-                  <th style={{ width: 180 }}>Channel</th>
-                  <th style={{ width: 200 }}>Assigned BA</th>
+                  <th style={{ width: 220 }}>Sales Link</th>
+                  <th style={{ width: 140 }}>Area</th>
+                  <th style={{ width: 160 }}>Channel</th>
+                  <th style={{ width: 180 }}>Assigned BA</th>
+                  <th style={{ width: 150 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem' }}>
-                      {stores.length === 0 ? 'No stores yet — upload a DISPO file to populate' : 'No matches'}
+                    <td colSpan={7} style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem' }}>
+                      {stores.length === 0 ? 'No stores yet — poll Perigee visits or upload sales data to populate' : 'No matches'}
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((store, i) => (
-                    <tr key={`${store.siteCode}-${store.storeName}`} style={!store.channelId ? { background: '#fffbeb' } : undefined}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{store.siteCode || '—'}</td>
-                      <td>{store.storeName}</td>
-                      <td>
-                        <input
-                          className="input"
-                          value={store.area || ''}
-                          onChange={e => handleAreaChange(i, e.target.value)}
-                          placeholder="—"
-                          style={{ width: '100%', fontSize: '0.8rem' }}
-                        />
-                      </td>
-                      <td>
-                        <select
-                          className="select"
-                          value={store.channelId}
-                          onChange={e => handleChannelChange(i, e.target.value)}
-                          style={{ width: '100%', fontSize: '0.8rem' }}
-                        >
-                          <option value="">— Select —</option>
-                          {channels.map(ch => (
-                            <option key={ch.id} value={ch.id}>{ch.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          className="select"
-                          value={store.assignedBaEmail || ''}
-                          onChange={e => handleBaChange(i, e.target.value)}
-                          style={{ width: '100%', fontSize: '0.8rem' }}
-                          title="Override which BA gets credited for this store's sales. Leave on Auto to derive from Perigee visits."
-                        >
-                          <option value="">— Auto (from visits) —</option>
-                          {store.assignedBaEmail && !bas.some(b => b.email === store.assignedBaEmail) && (
-                            <option value={store.assignedBaEmail}>{store.assignedBaName || store.assignedBaEmail}</option>
+                  filtered.map(store => {
+                    const rowBg = needsLink(store) ? '#fffbeb'
+                      : store.notInData ? '#f9fafb'
+                      : isOrphanSales(store) ? '#eff6ff'
+                      : undefined;
+                    return (
+                      <tr key={store._id} style={rowBg ? { background: rowBg } : undefined}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{store.perigeeCode || '—'}</td>
+                        <td>
+                          {store.storeName}
+                          {isOrphanSales(store) && (
+                            <span style={{ marginLeft: 6, fontSize: '0.65rem', color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 4 }}>sales only</span>
                           )}
-                          {bas.map(b => (
-                            <option key={b.email} value={b.email}>{b.repName}</option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td style={{ fontSize: '0.78rem' }}>
+                          {isLinked(store) ? (
+                            <span>
+                              <span style={{ fontFamily: 'monospace', color: '#6b7280' }}>{store.salesCode || '—'}</span>
+                              {' '}{store.salesName}
+                            </span>
+                          ) : store.notInData ? (
+                            <span style={{ color: '#9ca3af' }}>Not in data</span>
+                          ) : (
+                            <span style={{ color: '#dc2626' }}>Not linked</span>
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            className="input"
+                            value={store.area || ''}
+                            onChange={e => update(store._id, { area: e.target.value })}
+                            placeholder="—"
+                            style={{ width: '100%', fontSize: '0.8rem' }}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="select"
+                            value={store.channelId}
+                            onChange={e => update(store._id, { channelId: e.target.value })}
+                            style={{ width: '100%', fontSize: '0.8rem' }}
+                          >
+                            <option value="">— Select —</option>
+                            {channels.map(ch => (
+                              <option key={ch.id} value={ch.id}>{ch.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            className="select"
+                            value={store.assignedBaEmail || ''}
+                            onChange={e => {
+                              const ba = bas.find(b => b.email === e.target.value);
+                              update(store._id, { assignedBaEmail: e.target.value, assignedBaName: ba?.repName || '' });
+                            }}
+                            style={{ width: '100%', fontSize: '0.8rem' }}
+                            title="Override which BA gets credited for this store. Leave on Auto to derive from Perigee visits."
+                          >
+                            <option value="">— Auto (from visits) —</option>
+                            {store.assignedBaEmail && !bas.some(b => b.email === store.assignedBaEmail) && (
+                              <option value={store.assignedBaEmail}>{store.assignedBaName || store.assignedBaEmail}</option>
+                            )}
+                            {bas.map(b => (
+                              <option key={b.email} value={b.email}>{b.repName}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ fontSize: '0.75rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {isLinked(store) ? (
+                              <button className="btn" onClick={() => unlinkSales(store)} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
+                                Unlink sales
+                              </button>
+                            ) : (
+                              <button className="btn" onClick={() => { setLinkSource(store); setLinkSearch(''); }} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
+                                {isVisited(store) ? '＋ Link sales' : '＋ Link to store'}
+                              </button>
+                            )}
+                            {isVisited(store) && !isLinked(store) && (
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#6b7280' }}>
+                                <input type="checkbox" checked={!!store.notInData} onChange={() => toggleNotInData(store)} />
+                                Not in data
+                              </label>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -244,6 +396,61 @@ export default function StoresPage() {
 
         <Footer />
       </main>
+
+      {/* Link modal */}
+      {linkSource && (
+        <div
+          onClick={() => setLinkSource(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'white', borderRadius: 12, padding: '1.5rem', width: 'min(560px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: 4 }}>
+              {isVisited(linkSource) ? 'Link sales data' : 'Link to a visited store'}
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.75rem' }}>
+              {isVisited(linkSource)
+                ? <>Linking sales data to <strong>{linkSource.storeName}</strong> <span style={{ fontFamily: 'monospace' }}>({linkSource.perigeeCode})</span>.</>
+                : <>Linking sales entry <strong>{linkSource.salesName}</strong> to a Perigee store.</>}
+            </p>
+            <input
+              className="input"
+              autoFocus
+              placeholder="Search..."
+              value={linkSearch}
+              onChange={e => setLinkSearch(e.target.value)}
+              style={{ marginBottom: '0.75rem' }}
+            />
+            <div style={{ overflowY: 'auto', flex: 1, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+              {linkCandidates.length === 0 ? (
+                <div style={{ padding: '1.5rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.85rem' }}>
+                  {isVisited(linkSource) ? 'No unlinked sales entries found.' : 'No unlinked visited stores found.'}
+                </div>
+              ) : (
+                linkCandidates.map(c => (
+                  <button
+                    key={c._id}
+                    onClick={() => pickCandidate(c)}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.55rem 0.8rem', border: 'none', borderBottom: '1px solid #f3f4f6', background: 'white', cursor: 'pointer', fontSize: '0.82rem' }}
+                  >
+                    {isVisited(linkSource) ? (
+                      <><span style={{ fontFamily: 'monospace', color: '#6b7280' }}>{c.salesCode || '—'}</span> {c.salesName}</>
+                    ) : (
+                      <><span style={{ fontFamily: 'monospace', color: '#6b7280' }}>{c.perigeeCode}</span> {c.storeName}</>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.9rem' }}>
+              <button className="btn" onClick={() => setLinkSource(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

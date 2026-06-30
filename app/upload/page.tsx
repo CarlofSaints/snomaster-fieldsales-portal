@@ -207,7 +207,7 @@ export default function UploadPage() {
       const res = await authFetch('/api/dispo/upload', { method: 'POST', body: fd });
       const result = await res.json();
       if (result.ok) {
-        setToast({ msg: `Uploaded ${result.rowCount} rows — ${result.stores} stores, ${result.products} products`, type: 'success' });
+        setToast({ msg: `Uploaded ${result.rowCount} rows — ${result.stores} stores, ${result.products} products${typeof result.storesLinked === 'number' ? `, ${result.storesLinked} linked` : ''}`, type: 'success' });
         setDispoFile(null);
         if (dispoFileRef.current) dispoFileRef.current.value = '';
         loadDispoUploads();
@@ -242,11 +242,11 @@ export default function UploadPage() {
   }
 
   async function handleDispoDelete(id: string) {
-    if (!confirm('Delete this DISPO upload? All its data will be removed.')) return;
+    if (!confirm('Delete this sales upload? All its data will be removed.')) return;
     try {
       const res = await authFetch(`/api/dispo/delete/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setToast({ msg: 'DISPO upload deleted', type: 'success' });
+        setToast({ msg: 'Sales upload deleted', type: 'success' });
         loadDispoUploads();
       } else {
         const result = await res.json().catch(() => ({}));
@@ -456,7 +456,7 @@ export default function UploadPage() {
           Data Upload
         </h1>
         <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-          Upload visit data, DISPO sales/stock files, training form data, and sales targets
+          Upload visit data, channel sales &amp; stock files, training form data, and sales targets
         </p>
 
         {anyUploading && (
@@ -592,10 +592,11 @@ export default function UploadPage() {
         {/* === DISPO DATA UPLOAD === */}
         <div style={{ background: 'white', borderRadius: 12, padding: '1.5rem', border: '1px solid #e5e7eb' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>
-            DISPO — Sales & Stock Data
+            Sales & Stock Data
           </h2>
           <p style={{ color: '#9ca3af', fontSize: '0.8rem', marginBottom: '1rem' }}>
-            Upload weekly DISPO Excel files containing sales, stock on hand, and stock on order data
+            Upload weekly sales/stock Excel files (Makro DISPO format). Stores are linked to Perigee
+            visits on the Stores page.
           </p>
 
           {/* Drop zone */}
@@ -643,10 +644,10 @@ export default function UploadPage() {
               <>
                 <div style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>📊</div>
                 <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4, fontSize: '0.9rem' }}>
-                  Drop DISPO file here or click to browse
+                  Drop sales file here or click to browse
                 </div>
                 <div style={{ color: '#9ca3af', fontSize: '0.75rem' }}>
-                  Supports .xlsx, .xls and .xlsb DISPO files
+                  Supports .xlsx, .xls and .xlsb sales files (Makro DISPO format)
                 </div>
               </>
             )}
@@ -659,7 +660,7 @@ export default function UploadPage() {
               disabled={dispoUploading}
               style={{ width: '100%', marginBottom: '1rem' }}
             >
-              {dispoUploading ? (<><Spinner size={16} color="#fff" /> Uploading & Processing...</>) : 'Upload DISPO File'}
+              {dispoUploading ? (<><Spinner size={16} color="#fff" /> Uploading & Processing...</>) : 'Upload Sales File'}
             </button>
           )}
 
@@ -700,7 +701,7 @@ export default function UploadPage() {
           )}
           {dispoUploads.length === 0 && (
             <div style={{ color: '#9ca3af', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>
-              No DISPO uploads yet
+              No sales uploads yet
             </div>
           )}
         </div>
@@ -1163,10 +1164,10 @@ export default function UploadPage() {
             maxHeight: '80vh', display: 'flex', flexDirection: 'column',
           }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>
-              New Stores Detected
+              Unmatched Sales Stores
             </h3>
             <p style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.75rem' }}>
-              The following {newStoresModal.length} store{newStoresModal.length > 1 ? 's are' : ' is'} new and need{newStoresModal.length === 1 ? 's' : ''} channel assignment:
+              The following {newStoresModal.length} sales store{newStoresModal.length > 1 ? 's' : ''} could not be matched to a visited (Perigee) store. Link {newStoresModal.length > 1 ? 'them' : 'it'} on the Stores page, or assign a channel:
             </p>
             <div style={{ flex: 1, overflow: 'auto', marginBottom: '1rem', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem 0.75rem' }}>
               {newStoresModal.map((name, i) => (
