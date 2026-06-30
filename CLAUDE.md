@@ -3,7 +3,7 @@
 ## Project Location
 `C:\Users\CarlDosSantos-(OUTER\Projects\snomaster-fieldsales-portal`
 GitHub: [snomaster-fieldsales-portal](https://github.com/CarlofSaints/snomaster-fieldsales-portal)
-Vercel: _(to be created — own project + own Blob store)_
+Vercel: **https://vercel.com/carl-dos-santos-projects/snomaster-fieldsales-portal** — LIVE, auto-deploys from GitHub on push to `main` (Git integration; no `.vercel` CLI link, no manual `vercel --prod`).
 
 ## Origin
 Cloned from **Haier BA Measurement** (`haier-ba-measurement`) on 2026-06-29. Same codebase/feature set,
