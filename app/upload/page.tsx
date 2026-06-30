@@ -35,6 +35,19 @@ interface TargetUploadMeta {
   storeCount: number;
 }
 
+interface HirschUploadMetaUI {
+  id: string;
+  fileName: string;
+  periodStart: string;
+  periodEnd: string;
+  month: string;
+  rowCount: number;
+  salesVal: number;
+  branchCount: number;
+  itemCount: number;
+  uploadedAt: string;
+}
+
 function Spinner({ size = 20, color = '#e31e1c' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={{ animation: 'spin 1s linear infinite', display: 'inline-block', verticalAlign: 'middle' }}>
@@ -58,6 +71,14 @@ export default function UploadPage() {
   const [dispoUploads, setDispoUploads] = useState<DispoUploadMeta[]>([]);
   const [dispoDragOver, setDispoDragOver] = useState(false);
   const dispoFileRef = useRef<HTMLInputElement>(null);
+
+  // Hirsch's state
+  const [hirschFile, setHirschFile] = useState<File | null>(null);
+  const [hirschUploading, setHirschUploading] = useState(false);
+  const [hirschUploads, setHirschUploads] = useState<HirschUploadMetaUI[]>([]);
+  const [hirschDragOver, setHirschDragOver] = useState(false);
+  const hirschFileRef = useRef<HTMLInputElement>(null);
+  const [hirschWarning, setHirschWarning] = useState<string | null>(null);
 
   // Training state
   const [trainingUploads, setTrainingUploads] = useState<UploadMeta[]>([]);
@@ -86,7 +107,7 @@ export default function UploadPage() {
   // New stores modal
   const [newStoresModal, setNewStoresModal] = useState<string[] | null>(null);
 
-  const anyUploading = uploading || dispoUploading || trainingUploading || targetUploading || displayUploading || redFlagUploading;
+  const anyUploading = uploading || dispoUploading || hirschUploading || trainingUploading || targetUploading || displayUploading || redFlagUploading;
 
   // Warn user before leaving page during upload
   useEffect(() => {
@@ -112,6 +133,16 @@ export default function UploadPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.uploads) setDispoUploads(data.uploads);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadHirschUploads = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/hirsch');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.uploads) setHirschUploads(data.uploads);
       }
     } catch { /* ignore */ }
   }, []);
@@ -151,12 +182,13 @@ export default function UploadPage() {
     if (session) {
       loadUploads();
       loadDispoUploads();
+      loadHirschUploads();
       loadTrainingUploads();
       loadTargetUploads();
       loadDisplayUploads();
       loadRedFlagUploads();
     }
-  }, [session, loadUploads, loadDispoUploads, loadTrainingUploads, loadTargetUploads, loadDisplayUploads, loadRedFlagUploads]);
+  }, [session, loadUploads, loadDispoUploads, loadHirschUploads, loadTrainingUploads, loadTargetUploads, loadDisplayUploads, loadRedFlagUploads]);
 
   async function handleFile(file: File) {
     if (!file.name.match(/\.(xlsx?|csv)$/i)) {
@@ -248,6 +280,56 @@ export default function UploadPage() {
       if (res.ok) {
         setToast({ msg: 'Sales upload deleted', type: 'success' });
         loadDispoUploads();
+      } else {
+        const result = await res.json().catch(() => ({}));
+        setToast({ msg: result.error || 'Delete failed', type: 'error' });
+      }
+    } catch {
+      setToast({ msg: 'Delete failed', type: 'error' });
+    }
+  }
+
+  function handleHirschFile(file: File) {
+    if (!file.name.match(/\.(xlsx?|xlsb)$/i)) {
+      setToast({ msg: 'Please upload a Hirsch’s Excel file (.xls / .xlsx)', type: 'error' });
+      return;
+    }
+    setHirschFile(file);
+  }
+
+  async function handleHirschUpload() {
+    if (!hirschFile) return;
+    setHirschUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', hirschFile);
+      const res = await authFetch('/api/hirsch/upload', { method: 'POST', body: fd });
+      const result = await res.json();
+      if (res.ok && result.ok) {
+        setToast({ msg: `Loaded ${result.rowCount} rows — ${result.branchCount} branches, R${Math.round(result.salesVal).toLocaleString()} sales (${result.month})`, type: 'success' });
+        setHirschFile(null);
+        if (hirschFileRef.current) hirschFileRef.current.value = '';
+        loadHirschUploads();
+      } else if (result.overlap || result.crossMonth) {
+        // Show the blocking reason in a clear popup.
+        setHirschWarning(result.error);
+      } else {
+        setToast({ msg: result.error || 'Upload failed', type: 'error' });
+      }
+    } catch {
+      setToast({ msg: 'Upload failed', type: 'error' });
+    } finally {
+      setHirschUploading(false);
+    }
+  }
+
+  async function handleHirschDelete(id: string) {
+    if (!confirm('Delete this Hirsch’s upload? Its data will be removed and monthly totals recalculated.')) return;
+    try {
+      const res = await authFetch(`/api/hirsch/delete/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setToast({ msg: 'Hirsch’s upload deleted', type: 'success' });
+        loadHirschUploads();
       } else {
         const result = await res.json().catch(() => ({}));
         setToast({ msg: result.error || 'Delete failed', type: 'error' });
@@ -706,6 +788,112 @@ export default function UploadPage() {
           )}
         </div>
 
+        {/* === HIRSCH'S SALES DATA UPLOAD === */}
+        <div style={{ background: 'white', borderRadius: 12, padding: '1.5rem', border: '1px solid #e5e7eb', marginTop: '2rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>
+            Hirsch&apos;s — Sales &amp; Stock Data
+          </h2>
+          <p style={{ color: '#9ca3af', fontSize: '0.8rem', marginBottom: '1rem' }}>
+            Upload Hirsch&apos;s period sales files (.xls). Only SnoMaster lines are kept. Each file must
+            fall within a single month, and periods may not overlap an already-loaded file.
+          </p>
+
+          {/* Drop zone */}
+          <div
+            onDragOver={e => { e.preventDefault(); setHirschDragOver(true); }}
+            onDragLeave={() => setHirschDragOver(false)}
+            onDrop={e => {
+              e.preventDefault();
+              setHirschDragOver(false);
+              const file = e.dataTransfer.files[0];
+              if (file) handleHirschFile(file);
+            }}
+            onClick={() => hirschFileRef.current?.click()}
+            style={{
+              border: `2px dashed ${hirschDragOver ? '#e31e1c' : '#d1d5db'}`,
+              borderRadius: 10,
+              padding: '1.5rem',
+              textAlign: 'center',
+              cursor: hirschUploading ? 'not-allowed' : 'pointer',
+              background: hirschDragOver ? 'rgba(227,30,28,0.04)' : '#fafafa',
+              marginBottom: '1rem',
+              transition: 'all 0.15s',
+              opacity: hirschUploading ? 0.6 : 1,
+            }}
+          >
+            <input
+              ref={hirschFileRef}
+              type="file"
+              accept=".xls,.xlsx,.xlsb"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) handleHirschFile(file);
+              }}
+            />
+            {hirschFile ? (
+              <div>
+                <div style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>🧾</div>
+                <div style={{ fontWeight: 600, color: '#374151', fontSize: '0.9rem' }}>{hirschFile.name}</div>
+                <div style={{ color: '#9ca3af', fontSize: '0.75rem' }}>
+                  {(hirschFile.size / 1024).toFixed(0)} KB — Click to change file
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>🧾</div>
+                <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4, fontSize: '0.9rem' }}>
+                  Drop Hirsch&apos;s file here or click to browse
+                </div>
+                <div style={{ color: '#9ca3af', fontSize: '0.75rem' }}>
+                  Supports .xls / .xlsx — period must be within one month
+                </div>
+              </>
+            )}
+          </div>
+
+          {hirschFile && (
+            <button
+              className="btn btn-primary"
+              onClick={handleHirschUpload}
+              disabled={hirschUploading}
+              style={{ width: '100%', marginBottom: '1rem' }}
+            >
+              {hirschUploading ? (<><Spinner size={16} color="#fff" /> Uploading & Processing...</>) : 'Upload Hirsch’s File'}
+            </button>
+          )}
+
+          {hirschUploads.length > 0 && (
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem' }}>
+                Loaded periods ({hirschUploads.length})
+              </div>
+              {hirschUploads.slice().reverse().map(u => (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', borderBottom: '1px solid #f3f4f6', fontSize: '0.8rem' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#374151' }}>{u.periodStart} → {u.periodEnd} <span style={{ color: '#9ca3af', fontWeight: 400 }}>({u.month})</span></div>
+                    <div style={{ color: '#9ca3af', fontSize: '0.72rem' }}>
+                      {u.fileName} — {u.branchCount} branches, {u.itemCount} items, R{Math.round(u.salesVal).toLocaleString()}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleHirschDelete(u.id)}
+                    className="btn"
+                    style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem', color: '#dc2626' }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {hirschUploads.length === 0 && (
+            <div style={{ color: '#9ca3af', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>
+              No Hirsch&apos;s uploads yet
+            </div>
+          )}
+        </div>
+
         {/* === TRAINING FORM DATA UPLOAD === */}
         <div style={{ background: 'white', borderRadius: 12, padding: '1.5rem', border: '1px solid #e5e7eb', marginTop: '2rem' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>
@@ -1152,6 +1340,27 @@ export default function UploadPage() {
       </main>
 
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Hirsch's overlap / cross-month warning */}
+      {hirschWarning && (
+        <div
+          onClick={() => setHirschWarning(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: '1.5rem', maxWidth: 460, width: '90%' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#b91c1c', marginBottom: '0.5rem' }}>
+              Upload blocked
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: '#374151', lineHeight: 1.5, marginBottom: '1rem' }}>
+              {hirschWarning}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary" onClick={() => setHirschWarning(null)}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Stores Modal */}
       {newStoresModal && (
