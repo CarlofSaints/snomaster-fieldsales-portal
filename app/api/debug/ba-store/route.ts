@@ -77,7 +77,13 @@ export async function GET(req: NextRequest) {
   const report = [];
   for (const [email, e] of byEmail) {
     const counts = [...e.storeCounts.entries()].sort((a, b) => b[1] - a[1]);
-    const mostVisited = counts.length ? { store: counts[0][0], visits: counts[0][1] } : null;
+    // Mirror the leaderboard: primary store = most-visited in the MOST RECENT
+    // ACTIVE MONTH (see app/api/scores/leaderboard/route.ts), NOT all-time — so
+    // a rep who transferred stores shows their current store, not an old one
+    // with more all-time visits.
+    const latestMonth = [...e.byMonth.keys()].sort().pop() || '';
+    const latestCounts = latestMonth ? [...e.byMonth.get(latestMonth)!.entries()].sort((a, b) => b[1] - a[1]) : [];
+    const mostVisited = latestCounts.length ? { store: latestCounts[0][0], visits: latestCounts[0][1], activeMonth: latestMonth } : null;
 
     // Store-master rows assigned to this email.
     const assignedRows = storeMaster
@@ -106,7 +112,7 @@ export async function GET(req: NextRequest) {
       leaderboardWouldDisplay: wouldDisplay,
       diagnosis: assignedDisplay
         ? `Shows "${assignedDisplay}" because a store is ASSIGNED to this email in the Stores page.`
-        : (mostVisited ? `Shows "${mostVisited.store}" because it is the most-visited store in the visit data.` : 'No store would show (no visits, no assignment).'),
+        : (mostVisited ? `Shows "${mostVisited.store}" because it is the most-visited store in their most recent active month (${mostVisited.activeMonth}).` : 'No store would show (no visits, no assignment).'),
     });
   }
 

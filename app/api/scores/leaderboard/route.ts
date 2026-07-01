@@ -98,28 +98,39 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Per-BA visit aggregates across the WHOLE visit history.
-    //   storeCounts: email → (storeName → #visits)
+    // Per-BA visit aggregates, BUCKETED BY MONTH. A BA's displayed store must
+    // reflect where they work NOW, not an all-time tally — otherwise a rep who
+    // transferred stores keeps showing their OLD store forever (e.g. a 2025
+    // store out-voting a smaller number of 2026 visits). We therefore resolve
+    // the primary store from the BA's MOST RECENT ACTIVE MONTH only.
+    //   storeCountsByMonth: email → (YYYY-MM → (storeName → #visits))
     //   codeByStoreName: "email|storeName" → that store's Perigee code
-    const storeCounts = new Map<string, Map<string, number>>();
+    const storeCountsByMonth = new Map<string, Map<string, Map<string, number>>>();
     const codeByStoreName = new Map<string, string>();
     for (const meta of visitIndex) {
       const visits = await loadVisitData(meta.id);
       for (const v of visits) {
         if (!v.email || !v.storeName) continue;
         const emailKey = v.email.toLowerCase();
-        if (!storeCounts.has(emailKey)) storeCounts.set(emailKey, new Map());
-        const m = storeCounts.get(emailKey)!;
+        const monthKey = (v.checkInDate || '').slice(0, 7); // YYYY-MM (lexically sortable)
+        if (!storeCountsByMonth.has(emailKey)) storeCountsByMonth.set(emailKey, new Map());
+        const byMonth = storeCountsByMonth.get(emailKey)!;
+        if (!byMonth.has(monthKey)) byMonth.set(monthKey, new Map());
+        const m = byMonth.get(monthKey)!;
         m.set(v.storeName, (m.get(v.storeName) || 0) + 1);
         if (v.storeCode) codeByStoreName.set(`${emailKey}|${v.storeName.toLowerCase().trim()}`, v.storeCode);
       }
     }
 
-    // A BA's PRIMARY store = the one they visited most (deterministic tie-break
-    // by name). This replaces the old "whichever visit row was processed last"
-    // behaviour, which showed an arbitrary store.
+    // A BA's PRIMARY store = the one they visited most IN THEIR MOST RECENT
+    // ACTIVE MONTH (deterministic tie-break by name). Using the latest active
+    // month (rep-relative, not calendar-relative) means a rep who has left still
+    // shows their last store instead of going blank, while a rep who moved shows
+    // their CURRENT store rather than an old one that has more all-time visits.
     const primaryStore = new Map<string, { name: string; code: string }>();
-    for (const [email, counts] of storeCounts) {
+    for (const [email, byMonth] of storeCountsByMonth) {
+      const latestMonth = [...byMonth.keys()].sort().pop() || '';
+      const counts = byMonth.get(latestMonth) || new Map<string, number>();
       let bestName = '';
       let bestCount = -1;
       for (const [name, c] of counts) {

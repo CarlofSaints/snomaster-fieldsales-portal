@@ -13,6 +13,98 @@ interface DispoSalesData {
   uploads: { id: string; fileName: string; uploadedAt: string; rowCount: number }[];
 }
 
+// Hirsch's data (separate feed — period-sum .xls, keyed by branch code → model).
+interface HirschAgg { qty: number; val: number }
+interface HirschData {
+  uploads: { id: string; fileName: string; uploadedAt: string; rowCount: number; month: string }[];
+  sales: Record<string, Record<string, Record<string, HirschAgg>>>; // MM-YYYY → branch → model → {qty,val}
+  stock: Record<string, Record<string, Record<string, HirschAgg>>>; // MM-YYYY → branch → model → {qty,val}
+  items: Record<string, { description: string; discontinued: boolean }>;
+}
+
+/**
+ * Merge Hirsch's sales/stock into the Makro DISPO shape so the existing tables,
+ * filters and exports render both retailers uniformly.
+ *
+ * Hirsch supplies a Rand VALUE directly and has no per-unit price, whereas this
+ * page derives value as units × price everywhere (see the on-page caveat). To
+ * stay consistent we synthesise a representative price per model =
+ * totalVal / totalQty across all loaded Hirsch data. That reproduces Hirsch's
+ * real totals exactly at the product level; per-store value carries the same
+ * "calculated, not supplied" caveat the page already shows for Makro.
+ *
+ * Branch code → store name comes from the store master (salesCode/siteCode →
+ * salesName), matching how visits/sales are linked elsewhere. Article key = the
+ * model's description (distinct from Makro article codes, so no collision).
+ */
+function mergeHirsch(
+  makro: DispoSalesData | null,
+  hirsch: HirschData | null,
+  codeToStoreName: Record<string, string>,
+): DispoSalesData {
+  const base: DispoSalesData = {
+    sales: {}, stock: {}, prices: {}, ytd: {}, uploads: [],
+    ...(makro ? { sales: structuredClone(makro.sales), stock: structuredClone(makro.stock), prices: { ...makro.prices }, ytd: structuredClone(makro.ytd), uploads: [...makro.uploads] } : {}),
+  };
+  if (!hirsch || !hirsch.uploads || hirsch.uploads.length === 0) return base;
+
+  const branchName = (branch: string) => codeToStoreName[branch] || codeToStoreName[branch.trim()] || `HIRSCH ${branch}`;
+  const articleKey = (model: string) => (hirsch.items[model]?.description || model).trim();
+
+  // Representative price per model = ΣVal / ΣQty across all Hirsch sales.
+  const modelAgg: Record<string, { qty: number; val: number }> = {};
+  for (const month of Object.values(hirsch.sales)) {
+    for (const branch of Object.values(month)) {
+      for (const [model, cell] of Object.entries(branch)) {
+        const a = modelAgg[model] || { qty: 0, val: 0 };
+        a.qty += cell.qty; a.val += cell.val;
+        modelAgg[model] = a;
+      }
+    }
+  }
+  for (const [model, a] of Object.entries(modelAgg)) {
+    const key = articleKey(model);
+    if (!(key in base.prices)) base.prices[key] = { inclSP: a.qty > 0 ? a.val / a.qty : 0, promSP: 0 };
+  }
+
+  // Sales: qty as units, per month → store → article.
+  for (const [month, branches] of Object.entries(hirsch.sales)) {
+    if (!base.sales[month]) base.sales[month] = {};
+    for (const [branch, models] of Object.entries(branches)) {
+      const store = branchName(branch);
+      if (!base.sales[month][store]) base.sales[month][store] = {};
+      for (const [model, cell] of Object.entries(models)) {
+        const key = articleKey(model);
+        base.sales[month][store][key] = (base.sales[month][store][key] || 0) + cell.qty;
+      }
+    }
+  }
+
+  // Stock: use the latest Hirsch month's snapshot (Makro stock is likewise a
+  // single current snapshot, not month-keyed). Qty → SOH; Hirsch has no SOO.
+  const latestStockMonth = Object.keys(hirsch.stock).sort((a, b) => {
+    const [am, ay] = a.split('-').map(Number); const [bm, by] = b.split('-').map(Number);
+    return ay !== by ? ay - by : am - bm;
+  }).pop();
+  if (latestStockMonth) {
+    for (const [branch, models] of Object.entries(hirsch.stock[latestStockMonth])) {
+      const store = branchName(branch);
+      if (!base.stock[store]) base.stock[store] = {};
+      for (const [model, cell] of Object.entries(models)) {
+        const key = articleKey(model);
+        const prev = base.stock[store][key] || { soh: 0, soo: 0 };
+        base.stock[store][key] = { soh: prev.soh + cell.qty, soo: prev.soo };
+      }
+    }
+  }
+
+  // Surface Hirsch uploads in the "last loaded" panel too.
+  for (const u of hirsch.uploads) base.uploads.push({ id: u.id, fileName: u.fileName, uploadedAt: u.uploadedAt, rowCount: u.rowCount });
+  base.uploads.sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt));
+
+  return base;
+}
+
 interface StoreMasterEntry {
   siteCode: string;
   storeName: string;
@@ -62,7 +154,8 @@ function formatPct(val: number | null): string {
 
 export default function SalesPage() {
   const { session, loading: authLoading, logout } = useAuth();
-  const [data, setData] = useState<DispoSalesData | null>(null);
+  const [rawDispo, setRawDispo] = useState<DispoSalesData | null>(null);
+  const [hirsch, setHirsch] = useState<HirschData | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('store');
   const [monthFilter, setMonthFilter] = useState('all');
@@ -99,14 +192,16 @@ export default function SalesPage() {
   const loadData = useCallback(async () => {
     setLoadingData(true);
     try {
-      const [dispoRes, storesRes, channelsRes, visitsRes, targetsRes] = await Promise.all([
+      const [dispoRes, hirschRes, storesRes, channelsRes, visitsRes, targetsRes] = await Promise.all([
         authFetch('/api/dispo'),
+        authFetch('/api/hirsch'),
         authFetch('/api/stores'),
         authFetch('/api/channels'),
         authFetch('/api/visits'),
         authFetch('/api/targets'),
       ]);
-      if (dispoRes.ok) setData(await dispoRes.json());
+      if (dispoRes.ok) setRawDispo(await dispoRes.json());
+      if (hirschRes.ok) setHirsch(await hirschRes.json());
       if (storesRes.ok) setStoreMaster(await storesRes.json());
       if (channelsRes.ok) setChannels(await channelsRes.json());
       if (visitsRes.ok) setVisits(await visitsRes.json());
@@ -161,17 +256,58 @@ export default function SalesPage() {
     document.body.style.userSelect = 'none';
   }
 
+  // Store code (branch/sales/perigee) → store name, from the store master.
+  // Used to resolve Hirsch branch codes to real store names.
+  const hirschCodeToName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of storeMaster) {
+      const name = s.salesName || s.storeName;
+      if (!name) continue;
+      for (const code of [s.salesCode, s.siteCode, s.perigeeCode]) {
+        if (code && code.trim() && !(code.trim() in map)) map[code.trim()] = name;
+      }
+    }
+    return map;
+  }, [storeMaster]);
+
+  // The channel id for Hirsch's (store-master Hirsch rows are created with a
+  // blank channel, so we tag them for display/filtering by matching the name).
+  const hirschChannelId = useMemo(
+    () => channels.find(c => /hirsch/i.test(c.name))?.id || '',
+    [channels],
+  );
+
+  // Merged Makro DISPO + Hirsch's data — everything downstream reads this.
+  const data = useMemo(
+    () => mergeHirsch(rawDispo, hirsch, hirschCodeToName),
+    [rawDispo, hirsch, hirschCodeToName],
+  );
+
+  // Store names that come from the Hirsch feed (for channel fallback + badges).
+  const hirschStoreNames = useMemo(() => {
+    const set = new Set<string>();
+    if (!hirsch?.sales) return set;
+    for (const branches of Object.values(hirsch.sales)) {
+      for (const branch of Object.keys(branches)) {
+        set.add(hirschCodeToName[branch] || hirschCodeToName[branch.trim()] || `HIRSCH ${branch}`);
+      }
+    }
+    return set;
+  }, [hirsch, hirschCodeToName]);
+
   // DC stores set
   const dcStoreNames = useMemo(() => {
     return new Set(storeMaster.filter(s => s.channelId === 'dc').map(s => s.storeName));
   }, [storeMaster]);
 
-  // Channel lookup for stores
+  // Channel lookup for stores. Hirsch stores have no channel on the master, so
+  // fall back to the resolved Hirsch channel id.
   const storeChannelMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const s of storeMaster) map[s.storeName] = s.channelId;
+    for (const name of hirschStoreNames) if (!map[name]) map[name] = hirschChannelId;
     return map;
-  }, [storeMaster]);
+  }, [storeMaster, hirschStoreNames, hirschChannelId]);
 
   // Channel name lookup
   const channelNameMap = useMemo(() => {
@@ -867,7 +1003,7 @@ export default function SalesPage() {
           Sales & Stock
         </h1>
         <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-          DISPO sales, stock on hand, and stock on order data
+          Makro DISPO + Hirsch&apos;s sales, stock on hand, and stock on order data
         </p>
 
         {/* Controls */}
@@ -962,7 +1098,7 @@ export default function SalesPage() {
             background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8,
             padding: '0.5rem 1rem', fontSize: '0.8rem', color: '#0c4a6e', marginBottom: '1rem',
           }}>
-            Last DISPO loaded: <strong>{new Date(data.uploads[data.uploads.length - 1].uploadedAt).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+            Last file loaded: <strong>{new Date(data.uploads[data.uploads.length - 1].uploadedAt).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
             {' '}({data.uploads[data.uploads.length - 1].fileName})
           </div>
         )}
@@ -971,7 +1107,7 @@ export default function SalesPage() {
           <div style={{ textAlign: 'center', padding: '3rem', color: '#6b7280' }}>Loading sales data...</div>
         ) : !data || Object.keys(data.sales).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af' }}>
-            No DISPO data uploaded yet. Upload files via Data Upload.
+            No sales data uploaded yet — load a Makro DISPO or Hirsch&apos;s file via Data Upload.
           </div>
         ) : (
           <>
