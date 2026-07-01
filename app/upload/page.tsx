@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth, authFetch } from '@/lib/useAuth';
+import { getWeeksForMonth } from '@/lib/weekUtils';
 import Sidebar from '@/components/Sidebar';
 import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
@@ -114,6 +115,41 @@ export default function UploadPage() {
   const [newStoresModal, setNewStoresModal] = useState<string[] | null>(null);
 
   const anyUploading = uploading || dispoUploading || hirschUploading || trainingUploading || targetUploading || displayUploading || redFlagUploading;
+
+  // Week-by-week coverage of the loaded Hirsch's periods, so gaps are visible.
+  const hirschCoverage = useMemo(() => {
+    const periods = hirschUploads
+      .map(u => ({ start: u.periodStart, end: u.periodEnd }))
+      .filter(p => p.start && p.end);
+    if (periods.length === 0) return null;
+
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const addDays = (s: string, n: number) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return iso(d); };
+    const today = iso(new Date());
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const minStart = periods.reduce((m, p) => (p.start < m ? p.start : m), periods[0].start);
+    const maxEnd = periods.reduce((m, p) => (p.end > m ? p.end : m), periods[0].end);
+    const [sy, sm] = minStart.split('-').map(Number);
+    const [ey, em] = maxEnd.split('-').map(Number);
+
+    const rows: { monthLabel: string; weeks: { week: number; label: string; covered: boolean; future: boolean }[] }[] = [];
+    let maxWeeks = 0, gaps = 0;
+    let y = sy, mo = sm;
+    while (y < ey || (y === ey && mo <= em)) {
+      const weeks = getWeeksForMonth(`${y}-${String(mo).padStart(2, '0')}`).map(w => {
+        const wEnd = addDays(w.mondayDate, 6);
+        const covered = periods.some(p => p.start <= wEnd && p.end >= w.mondayDate);
+        const future = w.mondayDate > today;
+        if (!covered && !future) gaps++;
+        return { week: w.week, label: w.label, covered, future };
+      });
+      maxWeeks = Math.max(maxWeeks, weeks.length);
+      rows.push({ monthLabel: `${MONTHS[mo - 1]} ${y}`, weeks });
+      mo++; if (mo > 12) { mo = 1; y++; }
+    }
+    return { rows, maxWeeks, gaps };
+  }, [hirschUploads]);
 
   // Warn user before leaving page during upload
   useEffect(() => {
@@ -901,6 +937,52 @@ export default function UploadPage() {
             >
               {hirschUploading ? (<><Spinner size={16} color="#fff" /> Uploading & Processing...</>) : 'Upload Hirsch’s File'}
             </button>
+          )}
+
+          {hirschCoverage && (
+            <div style={{ marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>Week coverage</span>
+                {hirschCoverage.gaps > 0
+                  ? <span style={{ fontSize: '0.7rem', color: '#b91c1c', background: '#fee2e2', padding: '1px 8px', borderRadius: 999 }}>{hirschCoverage.gaps} week{hirschCoverage.gaps > 1 ? 's' : ''} missing</span>
+                  : <span style={{ fontSize: '0.7rem', color: '#166534', background: '#dcfce7', padding: '1px 8px', borderRadius: 999 }}>No gaps</span>}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'separate', borderSpacing: 3, fontSize: '0.72rem' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '2px 8px', color: '#9ca3af', fontWeight: 600 }}>Month</th>
+                      {Array.from({ length: hirschCoverage.maxWeeks }, (_, i) => (
+                        <th key={i} style={{ padding: '2px 6px', color: '#9ca3af', fontWeight: 600, minWidth: 48 }}>Wk {i + 1}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hirschCoverage.rows.map(row => (
+                      <tr key={row.monthLabel}>
+                        <td style={{ padding: '2px 8px', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>{row.monthLabel}</td>
+                        {Array.from({ length: hirschCoverage.maxWeeks }, (_, i) => {
+                          const w = row.weeks[i];
+                          if (!w) return <td key={i} />;
+                          const bg = w.covered ? '#dcfce7' : w.future ? '#f3f4f6' : '#fee2e2';
+                          const fg = w.covered ? '#166534' : w.future ? '#9ca3af' : '#b91c1c';
+                          const txt = w.covered ? '✓' : w.future ? '—' : 'gap';
+                          return (
+                            <td key={i} title={`${row.monthLabel} · ${w.label} — ${w.covered ? 'loaded' : w.future ? 'not yet' : 'MISSING'}`}
+                              style={{ textAlign: 'center', padding: '3px 6px', background: bg, color: fg, borderRadius: 5, fontWeight: 600 }}>
+                              {txt}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: 4 }}>
+                Weeks start Monday. <span style={{ color: '#166534' }}>✓ loaded</span> · <span style={{ color: '#b91c1c' }}>gap = no Hirsch&apos;s data</span> · — = future week. Hover a cell for the week date.
+              </div>
+            </div>
           )}
 
           {hirschUploads.length > 0 && (
