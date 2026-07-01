@@ -811,8 +811,8 @@ export default function SalesPage() {
     let wsData: unknown[][] = [];
 
     if (viewMode === 'store') {
-      wsData = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Vol Target', 'Val Var%', 'Vol Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
-      for (const r of storeSummary) wsData.push([r.channel, r.store, r.visits, r.checkins, r.units, r.value, r.valTarget || '', r.volTarget || '', r.valVar, r.volVar, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh, r.soo]);
+      wsData = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Val Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
+      for (const r of storeSummary) wsData.push([r.channel, r.store, r.visits, r.checkins, r.units, r.value, r.valTarget || '', r.valVar, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh, r.soo]);
     } else if (viewMode === 'product') {
       wsData = [['Article', 'Units', 'Value', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
       for (const r of productSummary) wsData.push([r.article, r.units, r.value, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh, r.soo]);
@@ -836,7 +836,7 @@ export default function SalesPage() {
     const wb = XLSX.utils.book_new();
 
     // Store Summary (unfiltered, non-DC)
-    const storeData: unknown[][] = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Vol Target', 'Val Var%', 'Vol Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
+    const storeData: unknown[][] = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Val Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
     const allMonths = Object.keys(data.sales);
     const storeAgg = new Map<string, { units: number; value: number; ytd: number; soh: number; soo: number; curUnits: number; prevUnits: number }>();
     for (const month of allMonths) {
@@ -872,10 +872,8 @@ export default function SalesPage() {
       const g = d.prevUnits > 0 ? ((d.curUnits - d.prevUnits) / d.prevUnits) * 100 : null;
       const tgt = storeTargets[store.trim().toUpperCase()];
       const vt = tgt?.valueTarget || 0;
-      const qt = tgt?.volumeTarget || 0;
       const vv = vt > 0 ? (d.value / vt) * 100 : null;
-      const qv = qt > 0 ? (d.units / qt) * 100 : null;
-      storeData.push([channelNameMap[storeChannelMap[store] || ''] || '', store, storeVisitCounts[store] || 0, storeCheckinCounts[store] || 0, d.units, d.value, vt || '', qt || '', vv, qv, totalUnitsS > 0 ? (d.units / totalUnitsS * 100) : 0, totalValueS > 0 ? (d.value / totalValueS * 100) : 0, g, d.ytd, d.soh, d.soo]);
+      storeData.push([channelNameMap[storeChannelMap[store] || ''] || '', store, storeVisitCounts[store] || 0, storeCheckinCounts[store] || 0, d.units, d.value, vt || '', vv, totalUnitsS > 0 ? (d.units / totalUnitsS * 100) : 0, totalValueS > 0 ? (d.value / totalValueS * 100) : 0, g, d.ytd, d.soh, d.soo]);
     }
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(storeData), 'Store Summary');
 
@@ -1195,9 +1193,7 @@ export default function SalesPage() {
                         {renderSortHeader('Units', 'units', 'center')}
                         {renderSortHeader('Value', 'value', 'right')}
                         {renderSortHeader('Val Target', 'valTarget', 'right')}
-                        {renderSortHeader('Vol Target', 'volTarget', 'center')}
                         {renderSortHeader('Val Var%', 'valVar', 'center')}
-                        {renderSortHeader('Vol Var%', 'volVar', 'center')}
                         {renderSortHeader('Contrib Vol%', 'contribVol', 'center')}
                         {renderSortHeader('Contrib Val%', 'contribVal', 'center')}
                         {renderSortHeader('Growth on LM%', 'growthLM', 'center')}
@@ -1216,12 +1212,8 @@ export default function SalesPage() {
                           <td style={ctr}>{r.units.toLocaleString()}</td>
                           <td style={rgt}>{formatCurrency(r.value)}</td>
                           <td style={rgt}>{r.valTarget > 0 ? formatCurrency(r.valTarget) : '—'}</td>
-                          <td style={ctr}>{r.volTarget > 0 ? r.volTarget.toLocaleString() : '—'}</td>
                           <td style={{ textAlign: 'center', color: r.valVar === null ? '#9ca3af' : r.valVar >= 100 ? '#059669' : r.valVar >= 80 ? '#d97706' : '#dc2626', fontWeight: r.valVar !== null ? 600 : 400 }}>
                             {r.valVar === null ? '—' : `${r.valVar.toFixed(1)}%`}
-                          </td>
-                          <td style={{ textAlign: 'center', color: r.volVar === null ? '#9ca3af' : r.volVar >= 100 ? '#059669' : r.volVar >= 80 ? '#d97706' : '#dc2626', fontWeight: r.volVar !== null ? 600 : 400 }}>
-                            {r.volVar === null ? '—' : `${r.volVar.toFixed(1)}%`}
                           </td>
                           <td style={ctr}>{formatPct(r.contribVol)}</td>
                           <td style={ctr}>{formatPct(r.contribVal)}</td>

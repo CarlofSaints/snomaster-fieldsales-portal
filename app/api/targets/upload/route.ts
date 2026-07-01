@@ -10,33 +10,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 export const runtime = 'nodejs';
 
-const MONTH_NAMES: Record<string, string> = {
-  january: '01', february: '02', march: '03', april: '04',
-  may: '05', june: '06', july: '07', august: '08',
-  september: '09', october: '10', november: '11', december: '12',
-  jan: '01', feb: '02', mar: '03', apr: '04',
-  jun: '06', jul: '07', aug: '08', sep: '09',
-  oct: '10', nov: '11', dec: '12',
+// First 3 letters of a month name → MM. Matches headers like "Jan ", "March", "Sep".
+const MONTH_PREFIX: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
 };
-
-/**
- * Parse a header cell like "April Target" or "May Target" and extract month name.
- * Returns MM-YYYY using the current year (targets don't include year).
- */
-function parseTargetMonth(val: unknown): string | null {
-  if (val === undefined || val === null) return null;
-  const str = String(val).trim().toLowerCase();
-  if (!str.includes('target')) return null;
-
-  // Extract month name from e.g. "april target", "May Target"
-  for (const [name, mm] of Object.entries(MONTH_NAMES)) {
-    if (str.includes(name)) {
-      const year = new Date().getFullYear();
-      return `${mm}-${year}`;
-    }
-  }
-  return null;
-}
 
 export async function POST(req: NextRequest) {
   const user = await requireRole(req, ['super_admin', 'admin']);
@@ -62,58 +40,70 @@ export async function POST(req: NextRequest) {
     // Raw data for rebuild-on-delete
     const rawTargets: Record<string, TargetEntry[]> = {};
 
+    // Only ingest the Targets sheet(s) — the workbook also holds an "Actual" sheet
+    // with the same layout that must NOT be loaded as targets.
     for (const sheetName of workbook.SheetNames) {
+      if (!/target/i.test(sheetName)) continue;
+
       const sheet = workbook.Sheets[sheetName];
       const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+      if (rows.length < 3) continue;
 
-      if (rows.length < 10) continue;
+      // Year comes from the sheet name (e.g. "2026 Targets"), else current year.
+      const yearMatch = sheetName.match(/(20\d{2})/);
+      const year = yearMatch ? yearMatch[1] : String(new Date().getFullYear());
 
-      // Scan row 7 (index 6) for cells matching *Target* (case-insensitive)
-      const headerRow = rows[6] as unknown[];
-      if (!headerRow) continue;
+      // Header row = the one carrying a "Store Code" cell (layout has a title row above it).
+      let headerIdx = -1;
+      for (let i = 0; i < Math.min(rows.length, 12); i++) {
+        if ((rows[i] || []).some(c => /store\s*code/i.test(String(c ?? '')))) { headerIdx = i; break; }
+      }
+      if (headerIdx < 0) continue;
+      const header = rows[headerIdx] as unknown[];
 
-      // Find month columns: header cell contains "Target", value col = that col, volume col = col+1
-      const monthCols: { monthKey: string; valueCol: number; volumeCol: number }[] = [];
-      for (let col = 0; col < headerRow.length; col++) {
-        const monthKey = parseTargetMonth(headerRow[col]);
-        if (monthKey) {
-          monthCols.push({ monthKey, valueCol: col, volumeCol: col + 1 });
+      // Resolve columns: store code, store name, and each month (skip a "Total" column).
+      let codeCol = -1, nameCol = -1;
+      const monthCols: { monthKey: string; col: number }[] = [];
+      for (let c = 0; c < header.length; c++) {
+        const h = String(header[c] ?? '').trim().toLowerCase();
+        if (!h) continue;
+        if (/store\s*code/.test(h)) { codeCol = c; continue; }
+        if (/store/.test(h) && nameCol < 0) { nameCol = c; continue; } // "Hirsch Store"
+        const mm = MONTH_PREFIX[h.slice(0, 3)];
+        if (mm && h !== 'total') {
+          const monthKey = `${mm}-${year}`;
+          monthCols.push({ monthKey, col: c });
           allMonths.add(monthKey);
         }
       }
-
-      if (monthCols.length === 0) continue;
+      if (codeCol < 0 || monthCols.length === 0) continue;
+      if (nameCol < 0) nameCol = 0;
       processedSheets.push(sheetName);
 
-      // Data rows from row 10 (index 9) onward
-      for (let r = 9; r < rows.length; r++) {
-        const row = rows[r] as unknown[];
-        if (!row) continue;
-
-        const storeName = row[0] ? String(row[0]).trim() : '';
-        const siteCode = row[1] ? String(row[1]).trim() : '';
-        if (!storeName || !siteCode) continue;
+      // Data rows: skip region headers, "Total" subtotals, blank lines and any row
+      // without a store code (e.g. "New CPT Store").
+      for (let r = headerIdx + 1; r < rows.length; r++) {
+        const row = (rows[r] || []) as unknown[];
+        const rawCode = row[codeCol];
+        if (rawCode === null || rawCode === undefined || String(rawCode).trim() === '') continue;
+        const siteCode = String(rawCode).trim();
+        const storeName = row[nameCol] ? String(row[nameCol]).trim() : siteCode;
+        if (/^total$/i.test(storeName)) continue;
 
         allStores.add(siteCode);
 
-        for (const { monthKey, valueCol, volumeCol } of monthCols) {
-          const valueTarget = Number(row[valueCol]) || 0;
-          const volumeTarget = Number(row[volumeCol]) || 0;
-          if (valueTarget === 0 && volumeTarget === 0) continue;
+        for (const { monthKey, col } of monthCols) {
+          const valueTarget = Math.round(Number(row[col]) || 0);
+          if (valueTarget <= 0) continue;
 
-          const entry: TargetEntry = { siteCode, storeName, valueTarget, volumeTarget };
+          // Rand value only — no volume target for SnoMaster.
+          const entry: TargetEntry = { siteCode, storeName, valueTarget, volumeTarget: 0 };
 
-          // Merge into main data
           if (!data.targets[monthKey]) data.targets[monthKey] = [];
-          // Replace existing entry for same siteCode in this month
           const existIdx = data.targets[monthKey].findIndex(e => e.siteCode === siteCode);
-          if (existIdx >= 0) {
-            data.targets[monthKey][existIdx] = entry;
-          } else {
-            data.targets[monthKey].push(entry);
-          }
+          if (existIdx >= 0) data.targets[monthKey][existIdx] = entry;
+          else data.targets[monthKey].push(entry);
 
-          // Save to raw for rebuild
           if (!rawTargets[monthKey]) rawTargets[monthKey] = [];
           rawTargets[monthKey].push(entry);
         }
@@ -122,7 +112,7 @@ export async function POST(req: NextRequest) {
 
     if (processedSheets.length === 0) {
       return NextResponse.json({
-        error: 'No sheets found with Target headers in row 7. Expected headers like "April Target", "May Target" etc.',
+        error: 'No "Targets" sheet found. Expected a sheet named like "2026 Targets" with a "Store Code" column and month columns (Jan…Dec).',
       }, { status: 400 });
     }
 
