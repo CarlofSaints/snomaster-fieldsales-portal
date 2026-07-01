@@ -560,14 +560,19 @@ export default function SalesPage() {
         entry.soo += soo;
       }
     }
-    if (data.ytd) {
-      for (const [store, products] of Object.entries(data.ytd)) {
-        if (!storePassesFilter(store)) continue;
-        if (!storeMap.has(store)) continue;
-        const entry = storeMap.get(store)!;
-        for (const [article, units] of Object.entries(products)) {
-          if (productFilter.length > 0 && !productFilter.includes(article)) continue;
-          entry.ytd += units;
+    // YTD Sales = sum of units across every loaded month of the target year
+    // (year-cumulative, independent of the selected month).
+    const ytdYear = ((monthFilter !== 'all' ? monthFilter : currentMonth) || '').split('-')[1];
+    if (ytdYear) {
+      for (const [month, monthData] of Object.entries(data.sales)) {
+        if (month.split('-')[1] !== ytdYear) continue;
+        for (const [store, products] of Object.entries(monthData)) {
+          if (!storeMap.has(store)) continue;
+          const entry = storeMap.get(store)!;
+          for (const [article, units] of Object.entries(products)) {
+            if (productFilter.length > 0 && !productFilter.includes(article)) continue;
+            entry.ytd += units;
+          }
         }
       }
     }
@@ -659,13 +664,18 @@ export default function SalesPage() {
         entry.soo += soo;
       }
     }
-    if (data.ytd) {
-      for (const [store, products] of Object.entries(data.ytd)) {
-        if (!storePassesFilter(store)) continue;
-        for (const [article, units] of Object.entries(products)) {
-          if (productFilter.length > 0 && !productFilter.includes(article)) continue;
-          if (!prodMap.has(article)) continue;
-          prodMap.get(article)!.ytd += units;
+    // YTD Sales = sum of units across every loaded month of the target year.
+    const ytdYear = ((monthFilter !== 'all' ? monthFilter : currentMonth) || '').split('-')[1];
+    if (ytdYear) {
+      for (const [month, monthData] of Object.entries(data.sales)) {
+        if (month.split('-')[1] !== ytdYear) continue;
+        for (const [store, products] of Object.entries(monthData)) {
+          if (!storePassesFilter(store)) continue;
+          for (const [article, units] of Object.entries(products)) {
+            if (productFilter.length > 0 && !productFilter.includes(article)) continue;
+            if (!prodMap.has(article)) continue;
+            prodMap.get(article)!.ytd += units;
+          }
         }
       }
     }
@@ -712,11 +722,26 @@ export default function SalesPage() {
       }
     }
 
+    // YTD Sales per store+article = sum of units across the target year's months.
+    const ytdYear = ((monthFilter !== 'all' ? monthFilter : currentMonth) || '').split('-')[1];
+    const ytdMap = new Map<string, number>();
+    if (ytdYear) {
+      for (const [month, monthData] of Object.entries(data.sales)) {
+        if (month.split('-')[1] !== ytdYear) continue;
+        for (const [store, products] of Object.entries(monthData)) {
+          for (const [article, units] of Object.entries(products)) {
+            const k = `${store}|||${article}`;
+            ytdMap.set(k, (ytdMap.get(k) || 0) + units);
+          }
+        }
+      }
+    }
+
     const rows: { store: string; channel: string; article: string; visits: number; checkins: number; units: number; value: number; ytd: number; soh: number; soo: number; monthUnits: Record<string, number>; growthLM: number | null }[] = [];
     for (const [key, d] of combos.entries()) {
       const [store, article] = key.split('|||');
       const stockEntry = data.stock[store]?.[article];
-      const ytdVal = data.ytd?.[store]?.[article] || 0;
+      const ytdVal = ytdMap.get(key) || 0;
       const curUnits = currentMonth ? (d.monthUnits[currentMonth] || 0) : 0;
       const prevUnits = prevMonth ? (d.monthUnits[prevMonth] || 0) : 0;
       let growthLM: number | null = prevUnits > 0 ? ((curUnits - prevUnits) / prevUnits) * 100 : null;
@@ -811,16 +836,16 @@ export default function SalesPage() {
     let wsData: unknown[][] = [];
 
     if (viewMode === 'store') {
-      wsData = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Val Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
-      for (const r of storeSummary) wsData.push([r.channel, r.store, r.visits, r.checkins, r.units, r.value, r.valTarget || '', r.valVar, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh, r.soo]);
+      wsData = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Val Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH']];
+      for (const r of storeSummary) wsData.push([r.channel, r.store, r.visits, r.checkins, r.units, r.value, r.valTarget || '', r.valVar, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh]);
     } else if (viewMode === 'product') {
-      wsData = [['Article', 'Units', 'Value', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
-      for (const r of productSummary) wsData.push([r.article, r.units, r.value, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh, r.soo]);
+      wsData = [['Article', 'Units', 'Value', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH']];
+      for (const r of productSummary) wsData.push([r.article, r.units, r.value, r.contribVol, r.contribVal, r.growthLM, r.ytd, r.soh]);
     } else {
       const monthCols = monthFilter === 'all' ? months : [monthFilter];
-      wsData = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Article', ...monthCols.map(formatMonthLabel), 'Total Units', 'Value', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
+      wsData = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Article', ...monthCols.map(formatMonthLabel), 'Total Units', 'Value', 'Growth on LM%', 'YTD Sales', 'SOH']];
       for (const r of detailRows) {
-        wsData.push([r.channel, r.store, r.visits, r.checkins, r.article, ...monthCols.map(m => r.monthUnits[m] || 0), r.units, r.value, r.growthLM, r.ytd, r.soh, r.soo]);
+        wsData.push([r.channel, r.store, r.visits, r.checkins, r.article, ...monthCols.map(m => r.monthUnits[m] || 0), r.units, r.value, r.growthLM, r.ytd, r.soh]);
       }
     }
 
@@ -836,8 +861,9 @@ export default function SalesPage() {
     const wb = XLSX.utils.book_new();
 
     // Store Summary (unfiltered, non-DC)
-    const storeData: unknown[][] = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Val Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
+    const storeData: unknown[][] = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Units', 'Value', 'Val Target', 'Val Var%', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH']];
     const allMonths = Object.keys(data.sales);
+    const ytdYear = (currentMonth || '').split('-')[1]; // YTD Sales = sum over this year's months
     const storeAgg = new Map<string, { units: number; value: number; ytd: number; soh: number; soo: number; curUnits: number; prevUnits: number }>();
     for (const month of allMonths) {
       for (const [store, products] of Object.entries(data.sales[month])) {
@@ -849,6 +875,7 @@ export default function SalesPage() {
           entry.value += calcValue(units, data.prices[article]);
           if (month === currentMonth) entry.curUnits += units;
           if (month === prevMonth) entry.prevUnits += units;
+          if (ytdYear && month.split('-')[1] === ytdYear) entry.ytd += units;
         }
       }
     }
@@ -858,13 +885,6 @@ export default function SalesPage() {
       const entry = storeAgg.get(store)!;
       for (const { soh, soo } of Object.values(products)) { entry.soh += soh; entry.soo += soo; }
     }
-    if (data.ytd) {
-      for (const [store, products] of Object.entries(data.ytd)) {
-        if (dcStoreNames.has(store)) continue;
-        if (!storeAgg.has(store)) continue;
-        for (const units of Object.values(products)) storeAgg.get(store)!.ytd += units;
-      }
-    }
     const storeArr = Array.from(storeAgg.entries()).sort((a, b) => b[1].value - a[1].value);
     const totalUnitsS = storeArr.reduce((s, [, d]) => s + d.units, 0);
     const totalValueS = storeArr.reduce((s, [, d]) => s + d.value, 0);
@@ -873,12 +893,12 @@ export default function SalesPage() {
       const tgt = storeTargets[store.trim().toUpperCase()];
       const vt = tgt?.valueTarget || 0;
       const vv = vt > 0 ? (d.value / vt) * 100 : null;
-      storeData.push([channelNameMap[storeChannelMap[store] || ''] || '', store, storeVisitCounts[store] || 0, storeCheckinCounts[store] || 0, d.units, d.value, vt || '', vv, totalUnitsS > 0 ? (d.units / totalUnitsS * 100) : 0, totalValueS > 0 ? (d.value / totalValueS * 100) : 0, g, d.ytd, d.soh, d.soo]);
+      storeData.push([channelNameMap[storeChannelMap[store] || ''] || '', store, storeVisitCounts[store] || 0, storeCheckinCounts[store] || 0, d.units, d.value, vt || '', vv, totalUnitsS > 0 ? (d.units / totalUnitsS * 100) : 0, totalValueS > 0 ? (d.value / totalValueS * 100) : 0, g, d.ytd, d.soh]);
     }
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(storeData), 'Store Summary');
 
     // Product Summary
-    const prodData: unknown[][] = [['Article', 'Units', 'Value', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
+    const prodData: unknown[][] = [['Article', 'Units', 'Value', 'Contrib Vol%', 'Contrib Val%', 'Growth on LM%', 'YTD Sales', 'SOH']];
     const prodAgg = new Map<string, { units: number; value: number; ytd: number; soh: number; soo: number; curUnits: number; prevUnits: number }>();
     for (const month of allMonths) {
       for (const [store, products] of Object.entries(data.sales[month])) {
@@ -890,6 +910,7 @@ export default function SalesPage() {
           entry.value += calcValue(units, data.prices[article]);
           if (month === currentMonth) entry.curUnits += units;
           if (month === prevMonth) entry.prevUnits += units;
+          if (ytdYear && month.split('-')[1] === ytdYear) entry.ytd += units;
         }
       }
     }
@@ -899,27 +920,20 @@ export default function SalesPage() {
         if (prodAgg.has(article)) { prodAgg.get(article)!.soh += soh; prodAgg.get(article)!.soo += soo; }
       }
     }
-    if (data.ytd) {
-      for (const [store, products] of Object.entries(data.ytd)) {
-        if (dcStoreNames.has(store)) continue;
-        for (const [article, units] of Object.entries(products)) {
-          if (prodAgg.has(article)) prodAgg.get(article)!.ytd += units;
-        }
-      }
-    }
     const prodArr = Array.from(prodAgg.entries()).sort((a, b) => b[1].value - a[1].value);
     const totalUnitsP = prodArr.reduce((s, [, d]) => s + d.units, 0);
     const totalValueP = prodArr.reduce((s, [, d]) => s + d.value, 0);
     for (const [article, d] of prodArr) {
       const g = d.prevUnits > 0 ? ((d.curUnits - d.prevUnits) / d.prevUnits) * 100 : null;
-      prodData.push([article, d.units, d.value, totalUnitsP > 0 ? (d.units / totalUnitsP * 100) : 0, totalValueP > 0 ? (d.value / totalValueP * 100) : 0, g, d.ytd, d.soh, d.soo]);
+      prodData.push([article, d.units, d.value, totalUnitsP > 0 ? (d.units / totalUnitsP * 100) : 0, totalValueP > 0 ? (d.value / totalValueP * 100) : 0, g, d.ytd, d.soh]);
     }
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodData), 'Product Summary');
 
     // Detail
     const sortedMonths = months;
-    const detData: unknown[][] = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Article', ...sortedMonths.map(formatMonthLabel), 'Total Units', 'Value', 'Growth on LM%', 'YTD Sales', 'SOH', 'SOO']];
+    const detData: unknown[][] = [['Sales Channel', 'Store', 'Visits', 'Check-ins', 'Article', ...sortedMonths.map(formatMonthLabel), 'Total Units', 'Value', 'Growth on LM%', 'YTD Sales', 'SOH']];
     const detCombos = new Map<string, { units: number; value: number; monthUnits: Record<string, number> }>();
+    const detYtd = new Map<string, number>();
     for (const month of allMonths) {
       for (const [store, products] of Object.entries(data.sales[month])) {
         if (dcStoreNames.has(store)) continue;
@@ -930,17 +944,18 @@ export default function SalesPage() {
           entry.units += units;
           entry.value += calcValue(units, data.prices[article]);
           entry.monthUnits[month] = (entry.monthUnits[month] || 0) + units;
+          if (ytdYear && month.split('-')[1] === ytdYear) detYtd.set(key, (detYtd.get(key) || 0) + units);
         }
       }
     }
     for (const [key, d] of Array.from(detCombos.entries()).sort((a, b) => b[1].value - a[1].value)) {
       const [store, article] = key.split('|||');
-      const ytdVal = data.ytd?.[store]?.[article] || 0;
+      const ytdVal = detYtd.get(key) || 0;
       const stock = data.stock[store]?.[article];
       const cur = currentMonth ? (d.monthUnits[currentMonth] || 0) : 0;
       const prev = prevMonth ? (d.monthUnits[prevMonth] || 0) : 0;
       const g = prev > 0 ? ((cur - prev) / prev) * 100 : null;
-      detData.push([channelNameMap[storeChannelMap[store] || ''] || '', store, storeVisitCounts[store] || 0, storeCheckinCounts[store] || 0, article, ...sortedMonths.map(m => d.monthUnits[m] || 0), d.units, d.value, g, ytdVal, stock?.soh || 0, stock?.soo || 0]);
+      detData.push([channelNameMap[storeChannelMap[store] || ''] || '', store, storeVisitCounts[store] || 0, storeCheckinCounts[store] || 0, article, ...sortedMonths.map(m => d.monthUnits[m] || 0), d.units, d.value, g, ytdVal, stock?.soh || 0]);
     }
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detData), 'Detail');
 
@@ -1140,12 +1155,6 @@ export default function SalesPage() {
                   {storeSummary.reduce((s, r) => s + r.soh, 0).toLocaleString()}
                 </div>
               </div>
-              <div className="kpi-card">
-                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: 4 }}>Total SOO</div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#e31e1c' }}>
-                  {storeSummary.reduce((s, r) => s + r.soo, 0).toLocaleString()}
-                </div>
-              </div>
             </div>
 
             {/* Target matching info */}
@@ -1199,7 +1208,6 @@ export default function SalesPage() {
                         {renderSortHeader('Growth on LM%', 'growthLM', 'center')}
                         {renderSortHeader('YTD Sales', 'ytd', 'center')}
                         {renderSortHeader('SOH', 'soh', 'center')}
-                        {renderSortHeader('SOO', 'soo', 'center')}
                       </tr>
                     </thead>
                     <tbody>
@@ -1220,7 +1228,6 @@ export default function SalesPage() {
                           {growthCell(r.growthLM)}
                           <td style={ctr}>{r.ytd.toLocaleString()}</td>
                           <td style={ctr}>{r.soh.toLocaleString()}</td>
-                          <td style={ctr}>{r.soo.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1239,7 +1246,6 @@ export default function SalesPage() {
                         {renderSortHeader('Growth on LM%', 'growthLM', 'center')}
                         {renderSortHeader('YTD Sales', 'ytd', 'center')}
                         {renderSortHeader('SOH', 'soh', 'center')}
-                        {renderSortHeader('SOO', 'soo', 'center')}
                       </tr>
                     </thead>
                     <tbody>
@@ -1253,7 +1259,6 @@ export default function SalesPage() {
                           {growthCell(r.growthLM)}
                           <td style={ctr}>{r.ytd.toLocaleString()}</td>
                           <td style={ctr}>{r.soh.toLocaleString()}</td>
-                          <td style={ctr}>{r.soo.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1277,7 +1282,6 @@ export default function SalesPage() {
                         {renderSortHeader('Growth on LM%', 'growthLM', 'center')}
                         {renderSortHeader('YTD Sales', 'ytd', 'center')}
                         {renderSortHeader('SOH', 'soh', 'center')}
-                        {renderSortHeader('SOO', 'soo', 'center')}
                       </tr>
                     </thead>
                     <tbody>
@@ -1296,7 +1300,6 @@ export default function SalesPage() {
                           {growthCell(r.growthLM)}
                           <td style={ctr}>{r.ytd.toLocaleString()}</td>
                           <td style={ctr}>{r.soh.toLocaleString()}</td>
-                          <td style={ctr}>{r.soo.toLocaleString()}</td>
                         </tr>
                       ))}
                       {detailRows.length > 500 && (
@@ -1331,7 +1334,6 @@ export default function SalesPage() {
                           {renderDcSortHeader('Store', 'store')}
                           {renderDcSortHeader('Product', 'article')}
                           {renderDcSortHeader('SOH', 'soh', 'center')}
-                          {renderDcSortHeader('SOO', 'soo', 'center')}
                         </tr>
                       </thead>
                       <tbody>
@@ -1340,7 +1342,6 @@ export default function SalesPage() {
                             <td>{r.store}</td>
                             <td>{r.article}</td>
                             <td style={ctr}>{r.soh.toLocaleString()}</td>
-                            <td style={ctr}>{r.soo.toLocaleString()}</td>
                           </tr>
                         ))}
                       </tbody>
