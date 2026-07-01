@@ -136,6 +136,23 @@ export default function UsersPage() {
     }
   }
 
+  async function handlePurge(u: { id: string; name: string; surname: string; email: string }) {
+    if (!confirm(`PURGE ${u.name} ${u.surname} (${u.email})?\n\nThis permanently removes the account AND all their scores, visits and training records from every upload — as if they were never in the data. This cannot be undone.`)) return;
+    try {
+      const res = await authFetch(`/api/users/${u.id}/purge`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const p = data.purged || {};
+        setToast({ msg: `Purged ${u.name} ${u.surname} — ${p.visitsRemoved ?? 0} visits, ${p.scoresRemoved ?? 0} scores, ${p.trainingRemoved ?? 0} training removed.`, type: 'success' });
+        loadUsers();
+      } else {
+        setToast({ msg: data.error || 'Purge failed', type: 'error' });
+      }
+    } catch {
+      setToast({ msg: 'Purge failed', type: 'error' });
+    }
+  }
+
   async function sendWelcome(userId: string) {
     try {
       const res = await authFetch('/api/users/send-welcome', {
@@ -210,6 +227,16 @@ export default function UsersPage() {
                       </button>
                       <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => openEdit(u)}>Edit</button>
                       <button className="btn btn-danger" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleDelete(u.id)}>Delete</button>
+                      {session.role === 'super_admin' && (
+                        <button
+                          className="btn btn-danger"
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', background: '#7f1d1d' }}
+                          onClick={() => handlePurge(u)}
+                          title="Remove the user AND all their scores, visits & training data"
+                        >
+                          Purge
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
