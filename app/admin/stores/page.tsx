@@ -8,6 +8,7 @@ import Footer from '@/components/Footer';
 
 interface StoreMaster {
   perigeeCode: string;
+  altPerigeeCodes?: string[];
   storeName: string;
   channelId: string;
   channelName?: string;
@@ -42,6 +43,11 @@ type Tab = 'all' | 'needsLink' | 'orphanSales' | 'notInData' | 'linked';
 /** Store names that look like a distribution centre / warehouse (never visited). */
 const DC_NAME_RE = /\bdc\b|ware\s*house|distribution\s*cent/i;
 
+/** Suffix-insensitive name key (mirrors lib/storeData.storeNameKey, client-safe). */
+function storeNameKey(name: string): string {
+  return (name || '').replace(/\s*-\s*[A-Za-z0-9]+\s*$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '').trim();
+}
+
 /** A store that has been visited (carries a Perigee code). */
 function isVisited(s: StoreMaster): boolean {
   return !!(s.perigeeCode && s.perigeeCode.trim());
@@ -74,6 +80,10 @@ export default function StoresPage() {
   // Link modal: pick a counterpart row to merge with `linkSource`.
   const [linkSource, setLinkSource] = useState<StoreMaster | null>(null);
   const [linkSearch, setLinkSearch] = useState('');
+
+  // Merge modal: pick another row to absorb INTO `mergeSource` (mergeSource survives).
+  const [mergeSource, setMergeSource] = useState<StoreMaster | null>(null);
+  const [mergeSearch, setMergeSearch] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -194,6 +204,41 @@ export default function StoresPage() {
     setToast({ msg: 'Linked — remember to Save', type: 'success' });
   }
 
+  /**
+   * Merge two rows for the SAME physical store into one. `survivor` is kept; all
+   * of `absorbed`'s Perigee codes become the survivor's (primary + aliases) so
+   * visits under any code count, and its sales/channel/BA fill any gaps.
+   */
+  function mergeStore(survivor: StoreMaster, absorbed: StoreMaster) {
+    const finalPrimary = (survivor.perigeeCode || absorbed.perigeeCode || '').trim();
+    const alts = [...new Set(
+      [survivor.perigeeCode, ...(survivor.altPerigeeCodes || []), absorbed.perigeeCode, ...(absorbed.altPerigeeCodes || [])]
+        .map(c => (c || '').trim())
+        .filter(c => c && c !== finalPrimary),
+    )];
+    setStores(prev => prev
+      .filter(x => x._id !== absorbed._id)
+      .map(x => x._id === survivor._id ? {
+        ...x,
+        perigeeCode: finalPrimary,
+        altPerigeeCodes: alts,
+        storeName: x.storeName || absorbed.storeName,
+        salesName: x.salesName || absorbed.salesName || '',
+        salesCode: x.salesCode || absorbed.salesCode || '',
+        siteCode: x.siteCode || absorbed.siteCode || '',
+        channelId: x.channelId || absorbed.channelId,
+        area: x.area || absorbed.area,
+        assignedBaEmail: x.assignedBaEmail || absorbed.assignedBaEmail,
+        assignedBaName: x.assignedBaName || absorbed.assignedBaName,
+        notInData: !!(x.notInData && absorbed.notInData),
+        isDc: !!(x.isDc || absorbed.isDc),
+      } : x));
+    setDirty(true);
+    setMergeSource(null);
+    setMergeSearch('');
+    setToast({ msg: 'Merged — remember to Save', type: 'success' });
+  }
+
   // Candidate rows for the link modal (opposite type of the source).
   const linkCandidates = useMemo(() => {
     if (!linkSource) return [];
@@ -218,6 +263,28 @@ export default function StoresPage() {
     const sales = isVisited(linkSource) ? candidate : linkSource;
     merge(visited, sales);
   }
+
+  // Merge candidates: any OTHER row, closest name first (to surface duplicates).
+  const mergeCandidates = useMemo(() => {
+    if (!mergeSource) return [];
+    const q = mergeSearch.toLowerCase().trim();
+    const srcKey = storeNameKey(mergeSource.storeName || mergeSource.salesName || '');
+    let list = stores.filter(s => s._id !== mergeSource._id);
+    if (q) {
+      list = list.filter(s =>
+        s.storeName.toLowerCase().includes(q) ||
+        (s.salesName || '').toLowerCase().includes(q) ||
+        (s.perigeeCode || '').toLowerCase().includes(q) ||
+        (s.salesCode || '').toLowerCase().includes(q)
+      );
+    }
+    // Rows sharing the suffix-insensitive name key float to the top.
+    return [...list].sort((a, b) => {
+      const am = storeNameKey(a.storeName || a.salesName || '') === srcKey ? 0 : 1;
+      const bm = storeNameKey(b.storeName || b.salesName || '') === srcKey ? 0 : 1;
+      return am - bm || (a.storeName || a.salesName || '').localeCompare(b.storeName || b.salesName || '');
+    }).slice(0, 100);
+  }, [mergeSource, stores, mergeSearch]);
 
   async function handleSave() {
     setSaving(true);
@@ -374,7 +441,14 @@ export default function StoresPage() {
                       : undefined;
                     return (
                       <tr key={store._id} style={rowBg ? { background: rowBg } : undefined}>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{store.perigeeCode || '—'}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                          {store.perigeeCode || '—'}
+                          {store.altPerigeeCodes && store.altPerigeeCodes.length > 0 && (
+                            <span title={`Also: ${store.altPerigeeCodes.join(', ')}`} style={{ marginLeft: 4, fontSize: '0.62rem', color: '#6b21a8', background: '#f3e8ff', padding: '1px 5px', borderRadius: 4 }}>
+                              +{store.altPerigeeCodes.length}
+                            </span>
+                          )}
+                        </td>
                         <td>
                           {store.storeName || store.siteName || <span style={{ color: '#9ca3af' }}>—</span>}
                           {!store.storeName && store.siteName && (
@@ -457,6 +531,9 @@ export default function StoresPage() {
                                 {isVisited(store) ? '＋ Link sales' : '＋ Link to store'}
                               </button>
                             )}
+                            <button className="btn" onClick={() => { setMergeSource(store); setMergeSearch(''); }} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }} title="Merge another row for the same store into this one (combines Perigee codes so visits under any code count).">
+                              ⇄ Merge duplicate
+                            </button>
                             {isVisited(store) && !isLinked(store) && (
                               <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#6b7280' }}>
                                 <input type="checkbox" checked={!!store.notInData} onChange={() => toggleNotInData(store)} />
@@ -584,6 +661,54 @@ export default function StoresPage() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.9rem' }}>
               <button className="btn" onClick={() => setLinkSource(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Merge modal */}
+      {mergeSource && (
+        <div
+          onClick={() => setMergeSource(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'white', borderRadius: 12, padding: '1.5rem', width: 'min(560px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: 4 }}>Merge duplicate into this store</h2>
+            <p style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.75rem' }}>
+              Keeping <strong>{mergeSource.storeName || mergeSource.salesName}</strong>
+              {mergeSource.perigeeCode && <span style={{ fontFamily: 'monospace' }}> ({mergeSource.perigeeCode})</span>}.
+              Pick another row for the same store — its Perigee code(s) and any sales link move onto this
+              one, so visits under either code count. The picked row is removed.
+            </p>
+            <input
+              className="input"
+              autoFocus
+              placeholder="Search..."
+              value={mergeSearch}
+              onChange={e => setMergeSearch(e.target.value)}
+              style={{ marginBottom: '0.75rem' }}
+            />
+            <div style={{ overflowY: 'auto', flex: 1, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+              {mergeCandidates.length === 0 ? (
+                <div style={{ padding: '1.5rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.85rem' }}>No other rows found.</div>
+              ) : (
+                mergeCandidates.map(c => (
+                  <button
+                    key={c._id}
+                    onClick={() => { if (confirm(`Merge "${c.storeName || c.salesName}" into "${mergeSource.storeName || mergeSource.salesName}"? This combines their Perigee codes and removes the other row.`)) mergeStore(mergeSource, c); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.55rem 0.8rem', border: 'none', borderBottom: '1px solid #f3f4f6', background: 'white', cursor: 'pointer', fontSize: '0.82rem' }}
+                  >
+                    <span style={{ fontFamily: 'monospace', color: '#6b7280' }}>{c.perigeeCode || c.salesCode || '—'}</span> {c.storeName || c.salesName}
+                    {isLinked(c) && <span style={{ marginLeft: 6, fontSize: '0.65rem', color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 4 }}>has sales</span>}
+                  </button>
+                ))
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.9rem' }}>
+              <button className="btn" onClick={() => setMergeSource(null)}>Cancel</button>
             </div>
           </div>
         </div>

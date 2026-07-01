@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
     const anyCodeToSalesCode = new Map<string, string>();
     for (const s of storeMaster) {
       if (!s.salesCode) continue;
-      for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
+      for (const code of [s.perigeeCode, ...(s.altPerigeeCodes || []), s.salesCode, s.siteCode]) {
         if (code && code.trim()) {
           const k = normalizeCode(code);
           if (!anyCodeToSalesCode.has(k)) anyCodeToSalesCode.set(k, s.salesCode);

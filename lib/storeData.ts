@@ -9,6 +9,13 @@ export interface StoreMaster {
    * sales-only row that has not yet been linked to a visited store.
    */
   perigeeCode: string;
+  /**
+   * Additional Perigee codes that belong to this SAME physical store. Perigee
+   * sometimes logs one store under several codes/spellings (e.g. "HIRSCHS
+   * BALLITO"/H0077 and misspelled "HIRSCHS BALITO"/HS01). Merging keeps every
+   * code here so visits under ANY of them are attributed to this one store.
+   */
+  altPerigeeCodes?: string[];
   /** Display name. Prefer the Perigee visit name; falls back to the sales name. */
   storeName: string;
   channelId: string;
@@ -116,6 +123,7 @@ export function normalizeStore(raw: Partial<StoreMaster>): StoreMaster {
       salesCode: (raw.salesCode || '').trim(),
       notInData: raw.notInData ?? false,
       isDc: raw.isDc ?? false,
+      altPerigeeCodes: (raw.altPerigeeCodes || []).map(c => (c || '').trim()).filter(Boolean),
       source: raw.source || 'manual',
       siteCode: (raw.siteCode || '').trim(),
     };
@@ -134,9 +142,21 @@ export function normalizeStore(raw: Partial<StoreMaster>): StoreMaster {
     salesCode: legacyCode,
     notInData: false,
     isDc: false,
+    altPerigeeCodes: [],
     source: 'sales',
     siteCode: legacyCode,
   };
+}
+
+/**
+ * Every code that identifies this store: the primary Perigee code, any alias
+ * Perigee codes, the sales code, and the legacy siteCode. Used so a visit under
+ * ANY of a store's codes resolves to it.
+ */
+export function storeAllCodes(s: StoreMaster): string[] {
+  return [s.perigeeCode, ...(s.altPerigeeCodes || []), s.salesCode, s.siteCode]
+    .map(c => (c || '').trim())
+    .filter(Boolean);
 }
 
 export async function loadStores(): Promise<StoreMaster[]> {
@@ -172,11 +192,9 @@ export function buildCodeToSalesName(stores: StoreMaster[], caseT: 'upper' | 'lo
   for (const s of stores) {
     const sales = storeSalesKey(s);
     if (!sales) continue;
-    for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
-      if (code && code.trim()) {
-        const k = fix(code);
-        if (!(k in out)) out[k] = sales;
-      }
+    for (const code of storeAllCodes(s)) {
+      const k = fix(code);
+      if (!(k in out)) out[k] = sales;
     }
   }
   return out;
@@ -203,9 +221,7 @@ export function buildAssignmentByCode(stores: StoreMaster[], caseT: 'upper' | 'l
       repName: s.assignedBaName || s.assignedBaEmail,
       salesName: storeSalesKey(s),
     };
-    for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
-      if (code && code.trim()) out.set(fix(code), a);
-    }
+    for (const code of storeAllCodes(s)) out.set(fix(code), a);
   }
   return out;
 }
@@ -223,7 +239,9 @@ export function upsertVisitedStores(stores: StoreMaster[], visits: Visit[]): { a
   // Index sales/master rows by their suffix-insensitive name key so a visit
   // ("HIRSCHS MILNERTON") matches a sales row ("HIRSCHS MILNERTON - 120").
   for (const s of stores) {
-    if (s.perigeeCode) byPerigee.set(normalizeCode(s.perigeeCode), s);
+    for (const c of [s.perigeeCode, ...(s.altPerigeeCodes || [])]) {
+      if (c && c.trim()) byPerigee.set(normalizeCode(c), s);
+    }
     for (const n of [s.storeName, s.salesName]) {
       if (n && n.trim() && !byName.has(storeNameKey(n))) byName.set(storeNameKey(n), s);
     }

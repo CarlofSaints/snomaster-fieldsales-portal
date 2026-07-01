@@ -111,6 +111,7 @@ interface StoreMasterEntry {
   channelId: string;
   channelName?: string;
   perigeeCode?: string;
+  altPerigeeCodes?: string[];
   salesName?: string;
   salesCode?: string;
   isDc?: boolean;
@@ -264,7 +265,7 @@ export default function SalesPage() {
     for (const s of storeMaster) {
       const name = s.salesName || s.storeName;
       if (!name) continue;
-      for (const code of [s.salesCode, s.siteCode, s.perigeeCode]) {
+      for (const code of [s.salesCode, s.siteCode, s.perigeeCode, ...(s.altPerigeeCodes || [])]) {
         if (code && code.trim() && !(code.trim() in map)) map[code.trim()] = name;
       }
     }
@@ -355,7 +356,7 @@ export default function SalesPage() {
     for (const s of storeMaster) {
       const name = s.salesName || s.storeName;
       if (!name) continue;
-      for (const code of [s.perigeeCode, s.salesCode, s.siteCode]) {
+      for (const code of [s.perigeeCode, ...(s.altPerigeeCodes || []), s.salesCode, s.siteCode]) {
         if (code && code.trim() && !(code in map)) map[code] = name;
       }
     }
@@ -370,7 +371,7 @@ export default function SalesPage() {
     for (const sm of storeMaster) {
       const name = sm.salesName || sm.storeName;
       if (!name) continue;
-      for (const code of [sm.perigeeCode, sm.salesCode, sm.siteCode]) {
+      for (const code of [sm.perigeeCode, ...(sm.altPerigeeCodes || []), sm.salesCode, sm.siteCode]) {
         if (code && code.trim()) {
           const k = code.trim().toUpperCase();
           if (!(k in map)) map[k] = name;

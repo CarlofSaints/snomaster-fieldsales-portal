@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole, noCacheHeaders } from '@/lib/auth';
 import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
-import { loadStores, normalizeCode, normalizeStoreName } from '@/lib/storeData';
+import { loadStores, normalizeCode, normalizeStoreName, storeAllCodes } from '@/lib/storeData';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,9 +30,7 @@ export async function GET(req: NextRequest) {
   const codeToMaster = new Map<string, string>();
   for (const s of stores) {
     const label = `${s.salesName || s.storeName}${s.isDc ? ' [DC]' : ''}`;
-    for (const c of [s.perigeeCode, s.salesCode, s.siteCode]) {
-      if (c && c.trim()) codeToMaster.set(normalizeCode(c), label);
-    }
+    for (const c of storeAllCodes(s)) codeToMaster.set(normalizeCode(c), label);
   }
 
   // Aggregate visits for stores whose NAME matches the query.
