@@ -35,6 +35,14 @@ export interface StoreMaster {
    */
   notInData?: boolean;
 
+  /**
+   * Marks a distribution centre / warehouse: it appears in the retailer's
+   * sales/stock data but a rep NEVER visits it. DC rows are excluded from
+   * "sales without a store" warnings (they are not expected to have a visit)
+   * and are shown in the DC-only stock section on the Sales page.
+   */
+  isDc?: boolean;
+
   /** Where this row first came from. */
   source?: 'visit' | 'sales' | 'manual';
 
@@ -78,6 +86,16 @@ export function normalizeCode(code: string): string {
 }
 
 /**
+ * Heuristic: does this store name look like a distribution centre / warehouse
+ * (a location that appears in sales/stock data but is never visited by a rep)?
+ * Used to bulk-tag DC rows. Matches a standalone "DC" token, "WAREHOUSE", or
+ * "DISTRIBUTION CENTRE".
+ */
+export function looksLikeDc(name: string): boolean {
+  return /\bdc\b|ware\s*house|distribution\s*cent/i.test(name || '');
+}
+
+/**
  * Migrate any stored shape into the current model. Old rows had only
  * `{ siteCode, storeName, channelId }` populated from DISPO uploads, so their
  * code is a retailer SALES code and the row represents a sales-feed store.
@@ -97,6 +115,7 @@ export function normalizeStore(raw: Partial<StoreMaster>): StoreMaster {
       salesName: raw.salesName || '',
       salesCode: (raw.salesCode || '').trim(),
       notInData: raw.notInData ?? false,
+      isDc: raw.isDc ?? false,
       source: raw.source || 'manual',
       siteCode: (raw.siteCode || '').trim(),
     };
@@ -114,6 +133,7 @@ export function normalizeStore(raw: Partial<StoreMaster>): StoreMaster {
     salesName: storeName,
     salesCode: legacyCode,
     notInData: false,
+    isDc: false,
     source: 'sales',
     siteCode: legacyCode,
   };

@@ -17,6 +17,7 @@ interface StoreMaster {
   salesName?: string;
   salesCode?: string;
   notInData?: boolean;
+  isDc?: boolean;
   source?: 'visit' | 'sales' | 'manual';
   siteCode?: string;
   siteName?: string;       // resolved from retailer site file (read-only)
@@ -36,7 +37,10 @@ interface BAOption {
   lastSeen: string;
 }
 
-type Tab = 'all' | 'needsLink' | 'orphanSales' | 'notInData' | 'linked';
+type Tab = 'all' | 'needsLink' | 'orphanSales' | 'notInData' | 'dc' | 'linked';
+
+/** Store names that look like a distribution centre / warehouse (never visited). */
+const DC_NAME_RE = /\bdc\b|ware\s*house|distribution\s*cent/i;
 
 /** A store that has been visited (carries a Perigee code). */
 function isVisited(s: StoreMaster): boolean {
@@ -46,9 +50,9 @@ function isVisited(s: StoreMaster): boolean {
 function isLinked(s: StoreMaster): boolean {
   return !!(s.salesName && s.salesName.trim());
 }
-/** Sales data with no matching visited store yet. */
+/** Sales data with no matching visited store yet (DCs are never visited, so excluded). */
 function isOrphanSales(s: StoreMaster): boolean {
-  return !isVisited(s) && isLinked(s);
+  return !isVisited(s) && isLinked(s) && !s.isDc;
 }
 /** Visited store that needs attention: no sales feed and not marked "not in data". */
 function needsLink(s: StoreMaster): boolean {
@@ -97,6 +101,7 @@ export default function StoresPage() {
     needsLink: stores.filter(needsLink).length,
     orphanSales: stores.filter(isOrphanSales).length,
     notInData: stores.filter(s => s.notInData).length,
+    dc: stores.filter(s => s.isDc).length,
     linked: stores.filter(isLinked).length,
   }), [stores]);
 
@@ -105,6 +110,7 @@ export default function StoresPage() {
     if (tab === 'needsLink') list = list.filter(needsLink);
     else if (tab === 'orphanSales') list = list.filter(isOrphanSales);
     else if (tab === 'notInData') list = list.filter(s => s.notInData);
+    else if (tab === 'dc') list = list.filter(s => s.isDc);
     else if (tab === 'linked') list = list.filter(isLinked);
 
     const q = search.toLowerCase().trim();
@@ -128,6 +134,22 @@ export default function StoresPage() {
 
   function toggleNotInData(s: StoreMaster) {
     update(s._id, { notInData: !s.notInData });
+  }
+
+  function toggleDc(s: StoreMaster) {
+    update(s._id, { isDc: !s.isDc });
+  }
+
+  /** Bulk-tag every store whose name looks like a DC / warehouse. */
+  function autoTagDcs() {
+    let n = 0;
+    setStores(prev => prev.map(s => {
+      const looksDc = DC_NAME_RE.test(`${s.storeName} ${s.salesName || ''}`);
+      if (looksDc && !s.isDc) { n++; return { ...s, isDc: true }; }
+      return s;
+    }));
+    setDirty(true);
+    setToast({ msg: n > 0 ? `Tagged ${n} DC/warehouse store${n > 1 ? 's' : ''} — review the DCs tab, then Save.` : 'No untagged DC/warehouse names found.', type: 'success' });
   }
 
   function unlinkSales(s: StoreMaster) {
@@ -241,6 +263,7 @@ export default function StoresPage() {
     { key: 'needsLink', label: 'Needs linking', count: counts.needsLink },
     { key: 'orphanSales', label: 'Sales w/o store', count: counts.orphanSales },
     { key: 'notInData', label: 'Not in data', count: counts.notInData },
+    { key: 'dc', label: 'DCs', count: counts.dc },
     { key: 'linked', label: 'Linked', count: counts.linked },
   ];
 
@@ -260,10 +283,14 @@ export default function StoresPage() {
           <button className="btn btn-primary" onClick={handleSyncVisited} disabled={syncing} style={{ fontSize: '0.82rem' }}>
             {syncing ? 'Syncing…' : 'Sync visited stores from history'}
           </button>
+          <button className="btn btn-outline" onClick={autoTagDcs} style={{ fontSize: '0.82rem' }}>
+            Auto-tag DCs &amp; warehouses
+          </button>
           <span style={{ fontSize: '0.75rem', color: '#6b7280', maxWidth: 520 }}>
-            Pulls every store from the visit history into this list and auto-links it to its sales feed
-            by name (Perigee codes like <code>HS07</code> differ from Hirsch site codes like <code>120</code>,
-            so matching is by store name). Run this after importing visits or loading new sales files.
+            <strong>Sync</strong> pulls every store from the visit history and auto-links it to its sales
+            feed by name (Perigee codes like <code>HS07</code> differ from site codes like <code>120</code>).
+            <strong> Auto-tag DCs</strong> flags distribution centres / warehouses that appear in sales data
+            but are never visited, so they stop showing as &quot;sales without a store&quot;.
           </span>
         </div>
 
@@ -349,6 +376,9 @@ export default function StoresPage() {
                           {isOrphanSales(store) && (
                             <span style={{ marginLeft: 6, fontSize: '0.65rem', color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 4 }}>sales only</span>
                           )}
+                          {store.isDc && (
+                            <span style={{ marginLeft: 6, fontSize: '0.65rem', color: '#92400e', background: '#fef3c7', padding: '1px 6px', borderRadius: 4 }}>DC</span>
+                          )}
                           {(store.siteProvince || store.siteSubChannel) && (
                             <div style={{ fontSize: '0.68rem', color: '#9ca3af' }}>
                               {[store.siteSubChannel, store.siteProvince].filter(Boolean).join(' · ')}
@@ -426,6 +456,10 @@ export default function StoresPage() {
                                 Not in data
                               </label>
                             )}
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#6b7280' }} title="Distribution centre / warehouse — appears in sales data but is never visited by a rep.">
+                              <input type="checkbox" checked={!!store.isDc} onChange={() => toggleDc(store)} />
+                              DC (no visits)
+                            </label>
                           </div>
                         </td>
                       </tr>

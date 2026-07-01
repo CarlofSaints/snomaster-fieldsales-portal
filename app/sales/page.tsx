@@ -113,6 +113,7 @@ interface StoreMasterEntry {
   perigeeCode?: string;
   salesName?: string;
   salesCode?: string;
+  isDc?: boolean;
 }
 
 interface Channel {
@@ -295,9 +296,19 @@ export default function SalesPage() {
     return set;
   }, [hirsch, hirschCodeToName]);
 
-  // DC stores set
+  // DC stores set — the 'dc' channel OR the per-store DC flag (distribution
+  // centres / warehouses that appear in sales data but are never visited).
+  // Indexed by both storeName and salesName so the merged (Hirsch) data keyed
+  // by sales name is excluded from the main table too.
   const dcStoreNames = useMemo(() => {
-    return new Set(storeMaster.filter(s => s.channelId === 'dc').map(s => s.storeName));
+    const set = new Set<string>();
+    for (const s of storeMaster) {
+      if (s.channelId === 'dc' || s.isDc) {
+        if (s.storeName) set.add(s.storeName);
+        if (s.salesName) set.add(s.salesName);
+      }
+    }
+    return set;
   }, [storeMaster]);
 
   // Channel lookup for stores. Hirsch stores have no channel on the master, so
