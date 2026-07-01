@@ -37,7 +37,7 @@ interface BAOption {
   lastSeen: string;
 }
 
-type Tab = 'all' | 'needsLink' | 'orphanSales' | 'notInData' | 'dc' | 'linked';
+type Tab = 'all' | 'needsLink' | 'orphanSales' | 'notInData' | 'linked';
 
 /** Store names that look like a distribution centre / warehouse (never visited). */
 const DC_NAME_RE = /\bdc\b|ware\s*house|distribution\s*cent/i;
@@ -96,36 +96,44 @@ export default function StoresPage() {
     if (session) loadData();
   }, [session, loadData]);
 
+  // DC / warehouse rows live in their own grid at the bottom, so the main grid
+  // (and its tab counts) only cover real, visitable stores.
+  const nonDcStores = useMemo(() => stores.filter(s => !s.isDc), [stores]);
+  const dcStores = useMemo(() => stores.filter(s => s.isDc), [stores]);
+
   const counts = useMemo(() => ({
-    all: stores.length,
-    needsLink: stores.filter(needsLink).length,
-    orphanSales: stores.filter(isOrphanSales).length,
-    notInData: stores.filter(s => s.notInData).length,
-    dc: stores.filter(s => s.isDc).length,
-    linked: stores.filter(isLinked).length,
-  }), [stores]);
+    all: nonDcStores.length,
+    needsLink: nonDcStores.filter(needsLink).length,
+    orphanSales: nonDcStores.filter(isOrphanSales).length,
+    notInData: nonDcStores.filter(s => s.notInData).length,
+    dc: dcStores.length,
+    linked: nonDcStores.filter(isLinked).length,
+  }), [nonDcStores, dcStores]);
+
+  const matchesSearch = useCallback((s: StoreMaster, q: string) =>
+    !q ||
+    s.storeName.toLowerCase().includes(q) ||
+    (s.siteName || '').toLowerCase().includes(q) ||
+    (s.salesName || '').toLowerCase().includes(q) ||
+    (s.perigeeCode || '').toLowerCase().includes(q) ||
+    (s.salesCode || '').toLowerCase().includes(q) ||
+    (s.area || '').toLowerCase().includes(q), []);
 
   const filtered = useMemo(() => {
-    let list = stores;
+    let list = nonDcStores;
     if (tab === 'needsLink') list = list.filter(needsLink);
     else if (tab === 'orphanSales') list = list.filter(isOrphanSales);
     else if (tab === 'notInData') list = list.filter(s => s.notInData);
-    else if (tab === 'dc') list = list.filter(s => s.isDc);
     else if (tab === 'linked') list = list.filter(isLinked);
 
     const q = search.toLowerCase().trim();
-    if (q) {
-      list = list.filter(s =>
-        s.storeName.toLowerCase().includes(q) ||
-        (s.siteName || '').toLowerCase().includes(q) ||
-        (s.salesName || '').toLowerCase().includes(q) ||
-        (s.perigeeCode || '').toLowerCase().includes(q) ||
-        (s.salesCode || '').toLowerCase().includes(q) ||
-        (s.area || '').toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [stores, tab, search]);
+    return q ? list.filter(s => matchesSearch(s, q)) : list;
+  }, [nonDcStores, tab, search, matchesSearch]);
+
+  const dcFiltered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return q ? dcStores.filter(s => matchesSearch(s, q)) : dcStores;
+  }, [dcStores, search, matchesSearch]);
 
   function update(id: number, patch: Partial<StoreMaster>) {
     setStores(prev => prev.map(s => (s._id === id ? { ...s, ...patch } : s)));
@@ -263,7 +271,6 @@ export default function StoresPage() {
     { key: 'needsLink', label: 'Needs linking', count: counts.needsLink },
     { key: 'orphanSales', label: 'Sales w/o store', count: counts.orphanSales },
     { key: 'notInData', label: 'Not in data', count: counts.notInData },
-    { key: 'dc', label: 'DCs', count: counts.dc },
     { key: 'linked', label: 'Linked', count: counts.linked },
   ];
 
@@ -333,7 +340,7 @@ export default function StoresPage() {
           </button>
           {dirty && <span style={{ fontSize: '0.75rem', color: '#dc2626' }}>Unsaved changes</span>}
           <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: 'auto' }}>
-            {filtered.length} of {stores.length} stores
+            {filtered.length} of {nonDcStores.length} stores{counts.dc > 0 ? ` · ${counts.dc} DC` : ''}
           </span>
         </div>
 
@@ -470,6 +477,60 @@ export default function StoresPage() {
             </table>
           </div>
         </div>
+
+        {/* DC / warehouse grid — kept separate so the main list stays clean */}
+        {dcStores.length > 0 && (
+          <div style={{ marginTop: '2rem' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#111827', marginBottom: '0.2rem' }}>
+              Distribution Centres &amp; Warehouses ({dcFiltered.length}{search ? ` of ${dcStores.length}` : ''})
+            </h2>
+            <p style={{ color: '#6b7280', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+              These appear in sales/stock data but are never visited by a rep. Untick &quot;DC&quot; to move a
+              row back into the main list. Remember to <strong>Save</strong>.
+            </p>
+            <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto', maxHeight: 420 }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 100 }}>Sales Code</th>
+                      <th>Store Name</th>
+                      <th style={{ width: 160 }}>Channel</th>
+                      <th style={{ width: 120 }}>DC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dcFiltered.length === 0 ? (
+                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: '1.5rem' }}>No matches</td></tr>
+                    ) : dcFiltered.map(store => (
+                      <tr key={store._id} style={{ background: '#fffdf5' }}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{store.salesCode || store.perigeeCode || '—'}</td>
+                        <td>{store.salesName || store.storeName || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                        <td>
+                          <select
+                            className="select"
+                            value={store.channelId}
+                            onChange={e => update(store._id, { channelId: e.target.value })}
+                            style={{ width: '100%', fontSize: '0.8rem' }}
+                          >
+                            <option value="">— Select —</option>
+                            {channels.map(ch => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#6b7280', fontSize: '0.78rem' }}>
+                            <input type="checkbox" checked={!!store.isDc} onChange={() => toggleDc(store)} />
+                            DC
+                          </label>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         <Footer />
       </main>
