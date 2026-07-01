@@ -63,6 +63,7 @@ export default function StoresPage() {
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<Tab>('all');
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -212,6 +213,25 @@ export default function StoresPage() {
     }
   }
 
+  async function handleSyncVisited() {
+    if (dirty && !confirm('You have unsaved changes that will be discarded by the sync (it reloads from the server). Continue?')) return;
+    setSyncing(true);
+    try {
+      const res = await authFetch('/api/stores/sync-visited', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setToast({ msg: `Synced ${data.visitsProcessed} visits — ${data.newVisitedRows} new store(s), ${data.newlyLinked} newly linked, ${data.unlinkedRemaining} still need linking.`, type: 'success' });
+        loadData();
+      } else {
+        setToast({ msg: data.error || 'Sync failed', type: 'error' });
+      }
+    } catch {
+      setToast({ msg: 'Sync failed', type: 'error' });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (authLoading || !session) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>Loading...</div>;
   }
@@ -235,6 +255,17 @@ export default function StoresPage() {
           Every visited store appears here with its Perigee code. Link each store to its sales feed
           (Makro / Hirsch&apos;s), or mark stores that have no sales data as &quot;Not in data&quot;.
         </p>
+
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={handleSyncVisited} disabled={syncing} style={{ fontSize: '0.82rem' }}>
+            {syncing ? 'Syncing…' : 'Sync visited stores from history'}
+          </button>
+          <span style={{ fontSize: '0.75rem', color: '#6b7280', maxWidth: 520 }}>
+            Pulls every store from the visit history into this list and auto-links it to its sales feed
+            by name (Perigee codes like <code>HS07</code> differ from Hirsch site codes like <code>120</code>,
+            so matching is by store name). Run this after importing visits or loading new sales files.
+          </span>
+        </div>
 
         {counts.needsLink > 0 && (
           <div style={{ padding: '0.6rem 1rem', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: '0.8rem', color: '#92400e', marginBottom: '1rem' }}>

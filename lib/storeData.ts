@@ -56,6 +56,22 @@ export function normalizeStoreName(name: string): string {
     .trim();
 }
 
+/**
+ * Strip a trailing " - <code>" site-code suffix from a sales store name
+ * (e.g. "HIRSCHS MILNERTON - 120" → "HIRSCHS MILNERTON"). Perigee visit names
+ * carry no such suffix, so stripping it lets the two feeds match by name. Only
+ * the trailing " - token" is removed, so qualifiers like " DC" / " WAREHOUSE" /
+ * "(SUPERSTORE)" are preserved and a store never collapses into its DC.
+ */
+export function stripSiteCodeSuffix(name: string): string {
+  return (name || '').replace(/\s*-\s*[A-Za-z0-9]+\s*$/, '').trim();
+}
+
+/** Suffix-insensitive name key: strip the " - <code>" suffix, then normalize. */
+export function storeNameKey(name: string): string {
+  return normalizeStoreName(stripSiteCodeSuffix(name));
+}
+
 /** Normalize a store code for matching: lowercase + trim. */
 export function normalizeCode(code: string): string {
   return (code || '').toLowerCase().trim();
@@ -184,10 +200,13 @@ export function buildAssignmentByCode(stores: StoreMaster[], caseT: 'upper' | 'l
 export function upsertVisitedStores(stores: StoreMaster[], visits: Visit[]): { added: number; stores: StoreMaster[] } {
   const byPerigee = new Map<string, StoreMaster>();
   const byName = new Map<string, StoreMaster>();
+  // Index sales/master rows by their suffix-insensitive name key so a visit
+  // ("HIRSCHS MILNERTON") matches a sales row ("HIRSCHS MILNERTON - 120").
   for (const s of stores) {
     if (s.perigeeCode) byPerigee.set(normalizeCode(s.perigeeCode), s);
-    if (s.storeName) byName.set(normalizeStoreName(s.storeName), s);
-    if (s.salesName) byName.set(normalizeStoreName(s.salesName), s);
+    for (const n of [s.storeName, s.salesName]) {
+      if (n && n.trim() && !byName.has(storeNameKey(n))) byName.set(storeNameKey(n), s);
+    }
   }
 
   // Collapse visits down to distinct stores (prefer a row that carries a code).
@@ -196,7 +215,7 @@ export function upsertVisitedStores(stores: StoreMaster[], visits: Visit[]): { a
     const name = (v.storeName || '').trim();
     const code = (v.storeCode || '').trim();
     if (!name && !code) continue;
-    const key = code ? `c:${normalizeCode(code)}` : `n:${normalizeStoreName(name)}`;
+    const key = code ? `c:${normalizeCode(code)}` : `n:${storeNameKey(name)}`;
     const existing = seen.get(key);
     if (!existing) seen.set(key, { code, name });
     else if (code && !existing.code) existing.code = code;
@@ -206,16 +225,17 @@ export function upsertVisitedStores(stores: StoreMaster[], visits: Visit[]): { a
   for (const { code, name } of seen.values()) {
     let row: StoreMaster | undefined;
     if (code) row = byPerigee.get(normalizeCode(code));
-    if (!row && name) row = byName.get(normalizeStoreName(name));
+    if (!row && name) row = byName.get(storeNameKey(name));
     if (row) {
       if (code && !row.perigeeCode) { row.perigeeCode = code; byPerigee.set(normalizeCode(code), row); }
       if (name && !row.storeName) row.storeName = name;
+      byName.set(storeNameKey(name), row);
       continue;
     }
     const createdRow = normalizeStore({ perigeeCode: code, storeName: name, channelId: '', source: 'visit' });
     stores.push(createdRow);
     if (code) byPerigee.set(normalizeCode(code), createdRow);
-    if (name) byName.set(normalizeStoreName(name), createdRow);
+    if (name) byName.set(storeNameKey(name), createdRow);
     added++;
   }
   return { added, stores };
