@@ -229,6 +229,24 @@ const LEGACY_KEY_MAP: Record<string, string> = {
 
 const VALID_KEYS = new Set(ALL_PERMISSION_KEYS);
 
+/**
+ * Permissions that already existed as a real, grantable capability in the
+ * version a stored roles.json could have been written under.
+ *
+ * The `callcycle.*` keys are deliberately EXCLUDED. They existed for only a few
+ * hours before being renamed to `cc.*`, and no saved roles.json in the wild was
+ * written while they were current — so treating them as pre-existing would make
+ * the whole Call Cycles section look like something an admin had chosen to
+ * switch off, and every existing Admin would silently lose it. Their entry in
+ * LEGACY_KEY_MAP still stands, so a roles.json that genuinely does hold them is
+ * translated correctly.
+ */
+const PRE_EXISTING_KEYS = new Set(
+  Object.entries(LEGACY_KEY_MAP)
+    .filter(([oldKey]) => !oldKey.startsWith('callcycle.'))
+    .map(([, newKey]) => newKey),
+);
+
 /** Translate any stored permission list into current keys, dropping dead ones. */
 function migratePermissions(perms: string[]): string[] {
   const out = new Set<string>();
@@ -240,9 +258,33 @@ function migratePermissions(perms: string[]): string[] {
   return [...out];
 }
 
-export async function loadRoles(): Promise<RoleConfig[]> {
-  const saved = await readJson<RoleConfig[]>(BLOB_KEY, []);
-  if (saved.length === 0) return DEFAULT_ROLES;
+/**
+ * Reconcile a saved built-in role with its current definition.
+ *
+ * Migrating alone is not enough. A role saved before the split can only carry
+ * permissions that existed then, so every NEW capability would arrive switched
+ * off — an existing Admin would quietly lose Reports, Products, Week Mapping
+ * and the entire Call Cycles section without anyone touching their role.
+ *
+ * So: keep exactly what was saved for anything that existed before (a
+ * deliberate revocation stays revoked), and fall back to the role's default for
+ * anything that is new. A permission that did not exist cannot have been
+ * revoked on purpose.
+ */
+function reconcileBuiltIn(def: RoleConfig, storedPermissions: string[]): string[] {
+  const migrated = new Set(migratePermissions(storedPermissions));
+  for (const key of def.permissions) {
+    if (!PRE_EXISTING_KEYS.has(key)) migrated.add(key);
+  }
+  return [...migrated];
+}
+
+/**
+ * Merge whatever is stored in roles.json with the current role definitions.
+ * Pure, so the migration can be tested without touching Blob.
+ */
+export function mergeStoredRoles(saved: RoleConfig[]): RoleConfig[] {
+  if (!Array.isArray(saved) || saved.length === 0) return DEFAULT_ROLES;
 
   const byName = new Map(saved.map(r => [r.name, r]));
   const out: RoleConfig[] = [];
@@ -261,17 +303,22 @@ export async function loadRoles(): Promise<RoleConfig[]> {
       // so re-assert that on read rather than letting it drift as new keys land.
       permissions: def.name === 'super_admin'
         ? ALL_PERMISSION_KEYS
-        : migratePermissions(stored.permissions),
+        : reconcileBuiltIn(def, stored.permissions),
       label: stored.label || def.label,
     });
   }
 
-  // Any custom roles the admin created on /roles.
+  // Any custom roles the admin created on /roles. These get no new-key
+  // fallback — a role someone built by hand should only hold what they ticked.
   for (const custom of byName.values()) {
     out.push({ ...custom, builtIn: false, permissions: migratePermissions(custom.permissions) });
   }
 
   return out;
+}
+
+export async function loadRoles(): Promise<RoleConfig[]> {
+  return mergeStoredRoles(await readJson<RoleConfig[]>(BLOB_KEY, []));
 }
 
 export async function saveRoles(roles: RoleConfig[]): Promise<void> {
