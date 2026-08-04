@@ -115,13 +115,52 @@ export default function PlannerUploadPage() {
   const [result, setResult] = useState<{ rowsWritten: number; storesWritten: number; rowsReplaced: number; reps: string[]; warnings: string[] } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [buildingTemplate, setBuildingTemplate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Template builder — defaults to next month, since a planner is written ahead.
+  const [tplMonth, setTplMonth] = useState(() => {
+    const m = new Date().getMonth() + 2;
+    return m > 12 ? 1 : m;
+  });
+  const [tplYear, setTplYear] = useState(() => {
+    const d = new Date();
+    return d.getMonth() + 2 > 12 ? d.getFullYear() + 1 : d.getFullYear();
+  });
 
   // Per-sheet review state, keyed by sheet name.
   const [repEmail, setRepEmail] = useState<Record<string, string>>({});
   const [visitFills, setVisitFills] = useState<Record<string, Set<string>>>({});
   const [storeCodes, setStoreCodes] = useState<Record<string, Record<string, string>>>({});
   const [showAllStores, setShowAllStores] = useState<Record<string, boolean>>({});
+
+  /**
+   * Fetched rather than linked: auth rides on the `x-user-id` header that
+   * authFetch adds, so a plain <a href> would come back 401.
+   */
+  async function downloadTemplate() {
+    setBuildingTemplate(true);
+    try {
+      const res = await authFetch(`/api/call-cycles/planner-template?month=${tplMonth}&year=${tplYear}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setToast({ msg: data.error || 'Could not build the planners', type: 'error' });
+        return;
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SnoMaster Planner - All Reps - ${MONTHS[tplMonth - 1]} ${tplYear}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setToast({ msg: 'Could not build the planners', type: 'error' });
+    } finally {
+      setBuildingTemplate(false);
+    }
+  }
 
   async function analyse(f: File) {
     setAnalysing(true);
@@ -274,12 +313,44 @@ export default function PlannerUploadPage() {
           rep, because the planner is re-sent every month.
         </p>
 
-        <div style={{ padding: '0.7rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, fontSize: '0.8rem', color: '#1e40af', marginBottom: '1.25rem' }}>
-          <strong>Tip for the reps:</strong> typing a <strong>1</strong> in the cell for each in-store
-          day is more reliable than shading it, and it still works alongside the colour key. Colours
-          get lost when a file is copied, re-themed or edited in a different Excel version — a typed
-          marker never does.
-        </div>
+        {/* Send the reps a template rather than fixing their files afterwards */}
+        <section style={{ ...card, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+          <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0c4a6e' }}>
+            Send the reps a ready-made planner
+          </h2>
+          <p style={{ fontSize: '0.8rem', color: '#0369a1', marginTop: 4, maxWidth: 780 }}>
+            The dates and weekday headers are built for the month, each rep&apos;s stores come
+            pre-filled with their <strong>Perigee site codes</strong>, and the sheet tells them to
+            type <strong>1</strong> for every in-store day. That removes the four things that
+            actually go wrong in hand-made planners: a title that disagrees with the calendar, a
+            shading colour missing from the key, an inserted column that shifts the grid, and blank
+            site codes.
+          </p>
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-end', marginTop: '0.9rem', flexWrap: 'wrap' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#0369a1', textTransform: 'uppercase', marginBottom: 3 }}>Month</label>
+              <select className="input" value={tplMonth} onChange={e => setTplMonth(Number(e.target.value))} style={{ fontSize: '0.8rem' }}>
+                {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#0369a1', textTransform: 'uppercase', marginBottom: 3 }}>Year</label>
+              <input className="input" type="number" value={tplYear} onChange={e => setTplYear(Number(e.target.value))} style={{ fontSize: '0.8rem', width: 92 }} />
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={downloadTemplate}
+              disabled={buildingTemplate}
+              style={{ fontSize: '0.82rem' }}
+            >
+              {buildingTemplate ? 'Building…' : 'Download planners for all reps'}
+            </button>
+          </div>
+          <p style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 8 }}>
+            One sheet per rep who currently has a schedule. Reps with no stores on file get an empty
+            sheet to fill in.
+          </p>
+        </section>
 
         {/* Drop zone */}
         {!result && (
