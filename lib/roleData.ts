@@ -35,6 +35,13 @@ export const ALL_PERMISSIONS: PermissionDef[] = [
   { key: 'upload.targets', label: 'Upload Target Data', category: 'Data Load' },
   { key: 'upload.display', label: 'Upload Display Data', category: 'Data Load' },
   { key: 'upload.red_flags', label: 'Upload Red Flag Data', category: 'Data Load' },
+  // Call Cycles
+  { key: 'callcycle.view', label: 'View Call Cycle Schedule', category: 'Call Cycles' },
+  { key: 'callcycle.upload', label: 'Upload Call Cycle Files', category: 'Call Cycles' },
+  { key: 'callcycle.manage', label: 'Edit / Delete Call Cycle Rows', category: 'Call Cycles' },
+  { key: 'callcycle.download', label: 'Download Perigee Export', category: 'Call Cycles' },
+  { key: 'callcycle.control_files', label: 'Manage Perigee Control Files', category: 'Call Cycles' },
+  { key: 'callcycle.adherence', label: 'View Call Cycle Adherence', category: 'Call Cycles' },
   // Users
   { key: 'users.view', label: 'View Users', category: 'Users' },
   { key: 'users.manage', label: 'Create / Edit / Delete Users', category: 'Users' },
@@ -85,13 +92,24 @@ const DEFAULT_ROLES: RoleConfig[] = [
     permissions: [
       'dashboard.view', 'leaderboard.view', 'kpi.visit_analytics', 'kpi.sales',
       'kpi.display', 'scoring_guide.view', 'site_guide.view',
+      'callcycle.view', 'callcycle.adherence',
     ],
   },
 ];
 
 export async function loadRoles(): Promise<RoleConfig[]> {
   const roles = await readJson<RoleConfig[]>(BLOB_KEY, []);
-  return roles.length > 0 ? roles : DEFAULT_ROLES;
+  if (roles.length === 0) return DEFAULT_ROLES;
+
+  // Once roles.json exists, edits to DEFAULT_ROLES are dead code — a saved role
+  // keeps whatever permission list it had when it was written, so a permission
+  // key added to ALL_PERMISSIONS later never reaches it. super_admin is
+  // documented (and rendered) as "all permissions locked on", so re-assert that
+  // on read rather than letting it silently drift. Other roles are left exactly
+  // as saved: granting them anything new is the admin's call, on /roles.
+  return roles.map(r =>
+    r.name === 'super_admin' ? { ...r, permissions: ALL_PERMISSION_KEYS } : r
+  );
 }
 
 export async function saveRoles(roles: RoleConfig[]): Promise<void> {

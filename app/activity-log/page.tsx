@@ -23,6 +23,7 @@ const ACTION_GROUPS: Record<string, string[]> = {
   'Scores': ['scores_save'],
   'Data Access': ['load_form_data'],
   'Reminders': ['reminder_create', 'reminder_edit', 'reminder_delete', 'reminder_sent'],
+  'Call Cycles': ['callcycle_upload', 'callcycle_edit', 'callcycle_delete', 'callcycle_clear', 'callcycle_download', 'callcycle_control_upload'],
   'System': ['cron_import'],
 };
 
@@ -37,6 +38,8 @@ const ACTION_LABELS: Record<string, string> = {
   scores_save: 'Save Scores',
   load_form_data: 'View Form Data',
   reminder_create: 'Create Reminder', reminder_edit: 'Edit Reminder', reminder_delete: 'Delete Reminder', reminder_sent: 'Reminder Sent',
+  callcycle_upload: 'Upload Call Cycle', callcycle_edit: 'Edit Call Cycle Row', callcycle_delete: 'Delete Call Cycle Row',
+  callcycle_clear: 'Clear Call Cycle', callcycle_download: 'Download Perigee File', callcycle_control_upload: 'Upload Control File',
 };
 
 function badgeStyle(action: string): React.CSSProperties {

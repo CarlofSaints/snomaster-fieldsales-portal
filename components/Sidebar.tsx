@@ -24,6 +24,13 @@ const KPI_ITEMS: NavItem[] = [
   { label: 'Red Flags', href: '/red-flags', icon: '🚩', roles: ['super_admin', 'admin'] },
 ];
 
+const CALL_CYCLE_ITEMS: NavItem[] = [
+  { label: 'Schedule', href: '/call-cycles', icon: '🗓️', roles: ['super_admin', 'admin', 'client'] },
+  { label: 'Upload Cycle File', href: '/call-cycles/upload', icon: '📥', roles: ['super_admin', 'admin'] },
+  { label: 'Adherence', href: '/call-cycles/adherence', icon: '🎯', roles: ['super_admin', 'admin', 'client'] },
+  { label: 'Control Files', href: '/call-cycles/control-files', icon: '🗂️', roles: ['super_admin', 'admin'] },
+];
+
 const AFTER_KPI_ITEMS: NavItem[] = [
   { label: 'Score Entry', href: '/scores', icon: '✏️', roles: ['super_admin', 'admin'] },
   { label: 'Reports', href: '/reports', icon: '📄', roles: ['super_admin', 'admin'] },
@@ -51,6 +58,7 @@ const CONTROL_ITEMS: NavItem[] = [
 const SIDEBAR_KEY = 'snomaster_sidebar_open';
 const CONTROL_KEY = 'snomaster_control_open';
 const KPI_KEY = 'snomaster_kpi_open';
+const CYCLE_KEY = 'snomaster_cycle_open';
 const SIDEBAR_W = 240;
 const TOPBAR_H = 52;
 
@@ -94,6 +102,7 @@ function ChevronIcon({ open }: { open: boolean }) {
 export default function Sidebar({ role, name, onLogout }: SidebarProps) {
   const pathname = usePathname();
   const visibleKPIItems = KPI_ITEMS.filter(item => item.roles.includes(role));
+  const visibleCycleItems = CALL_CYCLE_ITEMS.filter(item => item.roles.includes(role));
   const visibleAfterKPI = AFTER_KPI_ITEMS.filter(item => item.roles.includes(role));
   const visibleControlItems = CONTROL_ITEMS.filter(item => item.roles.includes(role));
   const showControlCentre = visibleControlItems.length > 0;
@@ -117,6 +126,13 @@ export default function Sidebar({ role, name, onLogout }: SidebarProps) {
     const stored = localStorage.getItem(KPI_KEY);
     if (stored !== null) return stored !== 'false';
     return true;
+  });
+
+  const [cycleOpen, setCycleOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const stored = localStorage.getItem(CYCLE_KEY);
+    if (stored !== null) return stored !== 'false';
+    return false;
   });
 
   // Sync body data attribute for CSS margin/padding rules
@@ -144,6 +160,14 @@ export default function Sidebar({ role, name, onLogout }: SidebarProps) {
     setKpiOpen(prev => {
       const next = !prev;
       localStorage.setItem(KPI_KEY, String(next));
+      return next;
+    });
+  }
+
+  function toggleCycle() {
+    setCycleOpen(prev => {
+      const next = !prev;
+      localStorage.setItem(CYCLE_KEY, String(next));
       return next;
     });
   }
@@ -183,6 +207,7 @@ export default function Sidebar({ role, name, onLogout }: SidebarProps) {
 
   // Check if any KPI sub-item is currently active (for highlighting the parent)
   const kpiActive = KPI_ITEMS.some(item => pathname === item.href);
+  const cycleActive = CALL_CYCLE_ITEMS.some(item => pathname === item.href);
 
   return (
     <>
@@ -301,6 +326,48 @@ export default function Sidebar({ role, name, onLogout }: SidebarProps) {
               {kpiOpen && (
                 <div>
                   {visibleKPIItems.map(item => renderNavItem(item, true))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Call Cycles — collapsible */}
+          {visibleCycleItems.length > 0 && (
+            <>
+              <div style={{ marginTop: '0.25rem', marginBottom: '0.15rem' }}>
+                <button
+                  onClick={toggleCycle}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    width: '100%',
+                    padding: '0.6rem 0.75rem',
+                    background: cycleActive && !cycleOpen ? 'rgba(227,30,28,0.25)' : 'none',
+                    border: 'none',
+                    color: cycleActive ? '#fff' : 'rgba(255,255,255,0.65)',
+                    fontSize: '0.85rem',
+                    fontWeight: cycleActive ? 600 : 400,
+                    cursor: 'pointer',
+                    borderRadius: 8,
+                    transition: 'background 0.15s, color 0.15s',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={e => {
+                    if (!cycleActive || cycleOpen) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)';
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.background = cycleActive && !cycleOpen ? 'rgba(227,30,28,0.25)' : 'transparent';
+                  }}
+                >
+                  <span style={{ fontSize: '1rem' }}>🔁</span>
+                  <span style={{ flex: 1 }}>Call Cycles</span>
+                  <ChevronIcon open={cycleOpen} />
+                </button>
+              </div>
+              {cycleOpen && (
+                <div>
+                  {visibleCycleItems.map(item => renderNavItem(item, true))}
                 </div>
               )}
             </>

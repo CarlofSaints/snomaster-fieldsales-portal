@@ -8,6 +8,8 @@ export type ActivityAction =
   | 'user_create' | 'user_edit' | 'user_delete' | 'user_purge' | 'rep_exclude'
   | 'scores_save'
   | 'reminder_create' | 'reminder_edit' | 'reminder_delete' | 'reminder_sent'
+  | 'callcycle_upload' | 'callcycle_edit' | 'callcycle_delete' | 'callcycle_clear'
+  | 'callcycle_download' | 'callcycle_control_upload'
   | 'user_login' | 'load_form_data';
 
 export interface ActivityLogEntry {

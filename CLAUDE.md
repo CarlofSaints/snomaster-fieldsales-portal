@@ -81,6 +81,62 @@ the leaderboard resolves, and any store-master assignment — built to pin down 
 mis-attribution (store shown ≠ stores actually visited). **Still to confirm with live data** whether his
 case was stale/cross-month visits, an email collision, or an assignment.
 
+## Call Cycles module (2026-08-04)
+
+Ported from the **iRAM Perigee Call Cycle Builder** (`~/Projects/perigee-callcycle-builder`, live at
+`iram.callcycle.fieldgoose.outerjoin.co.za`). Same job: managers send call cycles as Excel in whatever
+shape they like, we parse them into rep/store/day rows, and export a **Perigee-ready workbook** that
+uploads straight into the Perigee portal.
+
+**Key difference from iRAM: SnoMaster is single-tenant** — every loader lost its `tenantSlug`
+parameter, and storage moved onto SnoMaster's own `lib/blob.ts` (`readJson`/`writeJson`) instead of
+raw `@vercel/blob` + local-file fallbacks.
+
+### Files
+- `lib/callcycle/types.ts` — `ScheduleRow`, `ParsedEntry`, `ReferenceData`, control-file shapes.
+  `ReferenceData.storeSource` is new (`'control' | 'store-master' | 'none'`) so the UI can warn.
+- `lib/callcycle/parsers/` — **copied verbatim** (8 files). Format-agnostic Excel shape readers:
+  `parse4Week` (user-4wk), `parseMarkerFormat` (team-leader), `parseEmailSheet` (user),
+  plus `parseJoshStandard` / `parseJoshAlt` / `parseAshFormat` / `parseSimpleName` on the legacy
+  auto-detect path. `parserUtils.extractStoreCode()` handles `NAME - CODE`, `NAME [CODE]`,
+  `NAME-CODE`, `NAME CODE` and de-duplicates a trailing code out of the name.
+- `lib/callcycle/storeChannelResolver.ts` — copied verbatim. **A Perigee site code is only unique
+  WITHIN a channel**, so duplicate codes are disambiguated by store name (exact → channel keyword →
+  single best token overlap → ambiguous). Ambiguous = "error site".
+- `lib/callcycle/scheduleData.ts` — merge engine. `teamLeader` is a READ-TIME join off the team
+  control file and is stripped before every write, so it never goes stale on disk.
+- `lib/callcycle/referenceData.ts` — **SnoMaster-specific.** Stores come from the Perigee store
+  control file when loaded, else **fall back to SnoMaster's own store master** (`admin/stores.json`),
+  which already keys on the Perigee visit code. The fallback's channel names are SnoMaster's, which
+  may not match Perigee's — hence the warning on upload.
+- `lib/callcycle/adherenceCalc.ts` — takes a local `AdherenceVisit` shape (not SnoMaster's `Visit`).
+
+### Blob keys
+`callcycle/schedule.json`, `callcycle/store-control.json`, `callcycle/team-control.json`.
+
+### Routes
+`/call-cycles` (grid + Perigee download), `/call-cycles/upload`, `/call-cycles/control-files`,
+`/call-cycles/adherence`. APIs under `app/api/call-cycles/`.
+⚠ The download is fetched via `authFetch`, NOT a plain `<a href>` — auth rides on the `x-user-id`
+header, so a bare link 401s. `/api/call-cycles/templates` is deliberately unauthenticated (empty
+scaffolding, no SnoMaster data).
+
+### Adherence
+Reuses the Perigee visit history already in SnoMaster. Expected dates are generated from cycle weeks
+× days (`"Week 1&3"` + Monday → 1st & 3rd Monday of each month); the range end is capped at today.
+Visit store codes are folded onto the store master's **primary** Perigee code first, so a visit logged
+under an alias code still counts.
+
+### Status
+- **Build + typecheck clean.** Parser path smoke-tested end to end against a synthetic 4-week
+  workbook: sheet-name email carried through, both code formats extracted, name de-duplicated,
+  4 week blocks folded to `Week 1&2&3&4`, and a duplicate code across MAKRO/HIRSCH'S resolved to the
+  right channel by name.
+- **NOT yet run against a real SnoMaster file** — the SnoMaster-specific formats are the next job.
+  Add a new parser under `lib/callcycle/parsers/` and a new `ParseMode`; do NOT bend the existing
+  iRAM parsers, they are proven against iRAM's files.
+- **NOT yet runtime-tested against live Blob or a real Perigee upload.**
+
 ## Outstanding To Go Live
 1. Get the **SnoMaster Perigee API token** (for visits) — set in env / Perigee config page.
 2. Create the **Vercel project + new Blob store** + env vars (`BLOB_READ_WRITE_TOKEN`,
