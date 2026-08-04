@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
-import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
+import { loadVisitIndex, loadVisitData, filterVisitsByProject } from '@/lib/visitData';
 import { loadTrainingIndex, loadTrainingData } from '@/lib/trainingData';
 import { loadScores } from '@/lib/scoreData';
 
@@ -13,7 +14,7 @@ export const maxDuration = 60;
  * Returns unique BAs by email with visit/training counts.
  */
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['admin', 'super_admin']);
+  const user = await requirePermission(req, 'ba.bas.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
     // Visits
     const visitIndex = await loadVisitIndex();
     for (const meta of visitIndex) {
-      const visits = await loadVisitData(meta.id);
+      const visits = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
       for (const v of visits) {
         if (!v.email) continue;
         upsert(v.email, v.repName, v.checkInDate, v.storeName || undefined);

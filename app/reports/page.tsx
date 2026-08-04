@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
 
 export default function ReportsPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.reports.view');
   const [downloading, setDownloading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 

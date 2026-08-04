@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadChannels, saveChannels } from '@/lib/channelData';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin', 'client']);
+  const user = await requirePermission(req, 'system.channels.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const channels = await loadChannels();
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin']);
+  const user = await requirePermission(req, 'system.channels.manage');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { name, parentId } = await req.json();
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin']);
+  const user = await requirePermission(req, 'system.channels.manage');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id, name, parentId } = await req.json();
@@ -78,7 +79,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin']);
+  const user = await requirePermission(req, 'system.channels.manage');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const id = req.nextUrl.searchParams.get('id');

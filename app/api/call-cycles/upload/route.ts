@@ -3,7 +3,8 @@ import { parseCallCycleFile, ParseMode } from '@/lib/callcycle/parsers';
 import { loadReferences } from '@/lib/callcycle/referenceData';
 import { loadTeamControl } from '@/lib/callcycle/controlData';
 import { mergeIntoSchedule } from '@/lib/callcycle/scheduleData';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,7 @@ export const maxDuration = 60;
 const VALID_PARSE_MODES: ParseMode[] = ['team-leader', 'user', 'user-4wk', 'auto'];
 
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.planner.upload');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }

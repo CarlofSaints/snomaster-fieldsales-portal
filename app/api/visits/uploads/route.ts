@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadVisitIndex } from '@/lib/visitData';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.upload.visits');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const index = await loadVisitIndex();

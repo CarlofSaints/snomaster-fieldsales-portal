@@ -59,7 +59,7 @@ function Spinner({ size = 20, color = '#e31e1c' }: { size?: number; color?: stri
 }
 
 export default function UploadPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth(['ba.upload.visits', 'ba.upload.dispo', 'ba.upload.training', 'ba.upload.targets', 'ba.upload.display', 'ba.upload.red_flags']);
   const [uploads, setUploads] = useState<UploadMeta[]>([]);
   const [uploading, setUploading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);

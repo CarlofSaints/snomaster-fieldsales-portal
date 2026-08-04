@@ -155,7 +155,7 @@ function formatPct(val: number | null): string {
 }
 
 export default function SalesPage() {
-  const { session, loading: authLoading, logout } = useAuth();
+  const { session, loading: authLoading, logout } = useAuth('ba.kpi.sales');
   const [rawDispo, setRawDispo] = useState<DispoSalesData | null>(null);
   const [hirsch, setHirsch] = useState<HirschData | null>(null);
   const [loadingData, setLoadingData] = useState(true);

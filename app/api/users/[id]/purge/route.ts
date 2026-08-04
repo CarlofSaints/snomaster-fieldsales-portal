@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadUsers, saveUsers } from '@/lib/userData';
 import { logFromUser } from '@/lib/activityLog';
 import { loadScores, saveScores } from '@/lib/scoreData';
@@ -19,7 +20,7 @@ export const maxDuration = 60;
  * - Training records (filtered from each upload)
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireRole(req, ['super_admin']);
+  const user = await requirePermission(req, 'system.users.manage');
   if (!user) return NextResponse.json({ error: 'Unauthorized — super_admin only' }, { status: 401 });
 
   const { id } = await params;

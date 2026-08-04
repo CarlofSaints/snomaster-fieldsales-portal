@@ -15,7 +15,7 @@ interface ProductMaster {
 }
 
 export default function ProductsPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.products.manage');
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);

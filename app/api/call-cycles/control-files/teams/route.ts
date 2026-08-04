@@ -3,7 +3,8 @@ import * as XLSX from 'xlsx';
 import type { TeamControlEntry } from '@/lib/callcycle/types';
 import { loadTeamControl, saveTeamControl, clearTeamControl } from '@/lib/callcycle/controlData';
 import { findHeader } from '@/lib/callcycle/storeRowProcessor';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ function parseLeaderEmail(raw: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.control_files.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: Request) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.control_files.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -135,7 +136,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.control_files.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }

@@ -4,7 +4,8 @@ import { loadSchedule } from '@/lib/callcycle/scheduleData';
 import { loadReferences } from '@/lib/callcycle/referenceData';
 import { loadStoreControl, loadTeamControl } from '@/lib/callcycle/controlData';
 import { buildStoreChannelResolver } from '@/lib/callcycle/storeChannelResolver';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,7 @@ function parseCycleWeeks(cycle: string): number[] {
 }
 
 export async function GET(req: Request) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.download');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }

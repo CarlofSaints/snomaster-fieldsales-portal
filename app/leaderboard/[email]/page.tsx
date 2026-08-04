@@ -69,7 +69,7 @@ function currentMonth() {
 }
 
 export default function BADetailPage() {
-  const { session, loading: authLoading, logout } = useAuth();
+  const { session, loading: authLoading, logout } = useAuth('ba.leaderboard.view');
   const params = useParams();
   const router = useRouter();
   const email = decodeURIComponent(params.email as string);

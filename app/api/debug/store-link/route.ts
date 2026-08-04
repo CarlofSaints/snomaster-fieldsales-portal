@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
 import { loadStores, normalizeCode, normalizeStoreName } from '@/lib/storeData';
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const secret = url.searchParams.get('secret') || '';
   if (secret !== 'snomaster-seed-2026') {
-    const user = await requireRole(req, ['super_admin', 'admin']);
+    const user = await requirePermission(req, 'shared.stores.view');
     if (!user) return NextResponse.json({ error: 'Unauthorized — add &secret=snomaster-seed-2026' }, { status: 401 });
   }
   const q = (url.searchParams.get('q') || '').toLowerCase().trim();

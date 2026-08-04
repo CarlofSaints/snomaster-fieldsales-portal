@@ -49,7 +49,7 @@ const MODES: { key: ParseMode; title: string; note?: string; blurb: string; temp
 ];
 
 export default function CallCycleUploadPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('cc.planner.upload');
   const [file, setFile] = useState<File | null>(null);
   const [parseMode, setParseMode] = useState<ParseMode>('user-4wk');
   const [ignoreErrorSites, setIgnoreErrorSites] = useState(false);

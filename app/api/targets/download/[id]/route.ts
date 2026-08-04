@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadTargetData } from '@/lib/targetData';
 import { get } from '@vercel/blob';
 
@@ -9,7 +9,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requireRole(req, ['admin', 'super_admin']);
+  const user = await requirePermission(req, 'ba.upload.targets');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;

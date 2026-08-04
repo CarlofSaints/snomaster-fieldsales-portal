@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { loadUsers } from '@/lib/userData';
 import { noCacheHeaders } from '@/lib/auth';
+import { getUserPermissions } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,9 @@ export async function POST(req: NextRequest) {
       cellNumber: user.cellNumber || '',
       role: user.role,
       forcePasswordChange: user.forcePasswordChange,
+      // Sent so the browser knows what to draw. It is NOT the security boundary
+      // — every API route re-resolves permissions from the role server-side.
+      permissions: [...await getUserPermissions(user)],
     };
 
     logActivity('user_login', user.email, `${user.name} ${user.surname}`, 'auth', `${user.name} ${user.surname} logged in`).catch(() => {});

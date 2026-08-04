@@ -6,7 +6,7 @@
  * `runAutoCalcForMonth()` runs all calcs, merges into existing scores, and saves.
  */
 
-import { loadVisitIndex, loadVisitData } from './visitData';
+import { loadVisitIndex, loadVisitData, filterVisitsByProject } from './visitData';
 import { loadScoringConfig } from './scoringConfig';
 import { loadTargetData, getStoreTarget } from './targetData';
 import { loadDispoData, calcSalesValue } from './dispoData';
@@ -30,7 +30,7 @@ export async function calcCheckInScores(month: string): Promise<CheckInResult[]>
   const index = await loadVisitIndex();
   const allVisits = [];
   for (const meta of index) {
-    const visits = await loadVisitData(meta.id);
+    const visits = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
     allVisits.push(...visits);
   }
 
@@ -123,7 +123,7 @@ export async function calcSalesScores(month: string): Promise<SalesResult[]> {
   };
 
   for (const upload of visitIndex) {
-    const visits = await loadVisitData(upload.id);
+    const visits = filterVisitsByProject(await loadVisitData(upload.id), 'ba');
     for (const v of visits) {
       if (!v.checkInDate || !v.email || !v.checkInDate.startsWith(month)) continue;
       const email = v.email.toLowerCase();

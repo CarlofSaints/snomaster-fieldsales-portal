@@ -6,7 +6,8 @@ import { loadSchedule, saveSchedule } from '@/lib/callcycle/scheduleData';
 import { loadReferences } from '@/lib/callcycle/referenceData';
 import { loadTeamControl } from '@/lib/callcycle/controlData';
 import { buildStoreChannelResolver } from '@/lib/callcycle/storeChannelResolver';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 import type { ScheduleRow } from '@/lib/callcycle/types';
 
@@ -35,7 +36,7 @@ interface SheetDecision {
  * dropped from this month's plan would never disappear.
  */
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.planner.upload');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }

@@ -5,7 +5,8 @@ import type { StoreControlEntry } from '@/lib/callcycle/types';
 import { loadStoreControl, saveStoreControl, clearStoreControl } from '@/lib/callcycle/controlData';
 import { processStoreRows } from '@/lib/callcycle/storeRowProcessor';
 import { readJson, writeJson, deleteBlob } from '@/lib/blob';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +61,7 @@ async function commitStores(
 }
 
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.control_files.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -174,7 +175,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: Request) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.control_files.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -195,7 +196,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.control_files.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }

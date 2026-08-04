@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { deleteTrainingUpload } from '@/lib/trainingData';
 import { logFromUser } from '@/lib/activityLog';
 
@@ -9,7 +10,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireRole(req, ['admin', 'super_admin']);
+  const user = await requirePermission(req, 'ba.upload.training');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

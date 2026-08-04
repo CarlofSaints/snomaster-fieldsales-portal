@@ -49,7 +49,7 @@ function daysShort(days: string[]): string {
 }
 
 export default function CallCyclesPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin', 'client']);
+  const { session, loading: authLoading, logout, can } = useAuth('cc.schedule.view');
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -69,7 +69,7 @@ export default function CallCyclesPage() {
   const [clearInput, setClearInput] = useState('');
   const [clearing, setClearing] = useState(false);
 
-  const canEdit = session?.role === 'super_admin' || session?.role === 'admin';
+  const canEdit = can('cc.schedule.manage');
 
   const loadData = useCallback(async () => {
     setLoading(true);

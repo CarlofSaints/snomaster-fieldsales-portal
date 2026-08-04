@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { seedScoresFromVisits } from '@/lib/seedScores';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['admin', 'super_admin']);
+  const user = await requirePermission(req, 'ba.scores.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

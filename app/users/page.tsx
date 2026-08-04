@@ -19,9 +19,17 @@ interface UserRow {
   createdAt: string;
 }
 
-const ROLES: { value: Role; label: string }[] = [
+/**
+ * Fallback only. Roles are data — the real list is fetched from /api/roles so
+ * that Sales, Marketing, MD and any role created on /roles all show up here
+ * without this file needing to know about them.
+ */
+const FALLBACK_ROLES: { value: Role; label: string }[] = [
   { value: 'client', label: 'Client' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'marketing', label: 'Marketing' },
   { value: 'admin', label: 'Admin' },
+  { value: 'md', label: 'MD' },
   { value: 'super_admin', label: 'Super Admin' },
 ];
 
@@ -37,13 +45,14 @@ interface UserForm {
 }
 
 export default function UsersPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('system.users.view');
   const [users, setUsers] = useState<UserRow[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [form, setForm] = useState<UserForm>({ email: '', name: '', surname: '', cellNumber: '', role: 'client', password: '', forcePasswordChange: true, sendWelcomeEmail: true });
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [roles, setRoles] = useState<{ value: Role; label: string; description?: string }[]>(FALLBACK_ROLES);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -52,9 +61,21 @@ export default function UsersPage() {
     } catch { /* ignore */ }
   }, []);
 
+  // Roles are data, so pull the live list rather than hardcoding it.
+  const loadRoles = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/roles');
+      if (!res.ok) return;
+      const list: { name: string; label: string; description?: string }[] = await res.json();
+      if (Array.isArray(list) && list.length) {
+        setRoles(list.map(r => ({ value: r.name, label: r.label || r.name, description: r.description })));
+      }
+    } catch { /* keep the fallback */ }
+  }, []);
+
   useEffect(() => {
-    if (session) loadUsers();
-  }, [session, loadUsers]);
+    if (session) { loadUsers(); loadRoles(); }
+  }, [session, loadUsers, loadRoles]);
 
   function openCreate() {
     setEditUser(null);
@@ -279,10 +300,15 @@ export default function UsersPage() {
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: 4 }}>Role</label>
                   <select className="select" style={{ width: '100%' }} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}>
-                    {ROLES.filter(r => session.role === 'super_admin' || r.value !== 'super_admin').map(r => (
+                    {roles.filter(r => session.role === 'super_admin' || r.value !== 'super_admin').map(r => (
                       <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
                   </select>
+                  {roles.find(r => r.value === form.role)?.description && (
+                    <p style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: 4 }}>
+                      {roles.find(r => r.value === form.role)!.description}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: 4 }}>

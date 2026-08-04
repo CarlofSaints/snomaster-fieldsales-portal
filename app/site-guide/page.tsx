@@ -72,7 +72,7 @@ const SECTIONS = [
 ];
 
 export default function SiteGuidePage() {
-  const { session, loading: authLoading, logout } = useAuth();
+  const { session, loading: authLoading, logout } = useAuth('shared.site_guide.view');
 
   if (authLoading || !session) {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#6b7280' }}>Loading...</div>;

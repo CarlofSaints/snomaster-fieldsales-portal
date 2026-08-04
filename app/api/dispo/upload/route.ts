@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadDispoData, saveDispoData, DispoUploadMeta } from '@/lib/dispoData';
 import { loadStores, saveStores, linkSalesStores } from '@/lib/storeData';
 import { writeJson } from '@/lib/blob';
@@ -140,7 +141,7 @@ function findHeaderRow(rows: unknown[][], maxScan = 10): {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.upload.dispo');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

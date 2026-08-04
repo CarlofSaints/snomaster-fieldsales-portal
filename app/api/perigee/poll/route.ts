@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { Visit, loadVisitIndex, saveVisitIndex, saveVisitData, loadVisitData, visitDedupeKey } from '@/lib/visitData';
 import { seedScoresFromVisits } from '@/lib/seedScores';
 import { loadPerigeeConfig, savePerigeeConfig, activeTokens, fetchAllVisits, mapPerigeeVisit } from '@/lib/perigee';
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin']);
+  const user = await requirePermission(req, 'ba.upload.visits');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const config = await loadPerigeeConfig();
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
     if (mode === 'test') {
       const sample = rawVisits.slice(0, 3);
       const responseKeys = rawVisits.length > 0 ? Object.keys(rawVisits[0]) : [];
-      const mappedSample = sample.map(mapPerigeeVisit);
+      const mappedSample = sample.map(v => mapPerigeeVisit(v.row, v.project));
       // Surface the first token's response metadata for debugging
       const firstRaw = perToken.find(t => t.ok && t.raw)?.raw as Record<string, unknown> | undefined;
       const meta: Record<string, unknown> = {};
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     const excluded = excludedEmailSet(await loadExcludedReps());
     const mappedVisits: Visit[] = filterExcluded(
-      rawVisits.map(mapPerigeeVisit).filter(v => v.storeName || v.repName),
+      rawVisits.map(v => mapPerigeeVisit(v.row, v.project)).filter(v => v.storeName || v.repName),
       excluded,
     );
 

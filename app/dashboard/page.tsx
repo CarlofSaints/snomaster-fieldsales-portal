@@ -87,7 +87,7 @@ function VisitsPerDayTooltip({ active, payload, label }: {
 type SortKey = keyof Visit;
 
 export default function DashboardPage() {
-  const { session, loading: authLoading, logout } = useAuth();
+  const { session, loading: authLoading, logout } = useAuth('ba.dashboard.view');
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [fromDate, setFromDate] = useState('');

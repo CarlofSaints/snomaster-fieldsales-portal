@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
 import { loadStores, saveStores, upsertVisitedStores } from '@/lib/storeData';
 
@@ -16,7 +17,7 @@ export const runtime = 'nodejs';
  * codes into the master. Idempotent — safe to re-run.
  */
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'shared.stores.manage');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const [index, stores] = await Promise.all([loadVisitIndex(), loadStores()]);

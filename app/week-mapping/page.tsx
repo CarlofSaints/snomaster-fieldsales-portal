@@ -65,7 +65,7 @@ function getMonthOptions(year: number): { value: number; label: string }[] {
 }
 
 export default function WeekMappingPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.week_mapping.manage');
   const [config, setConfig] = useState<WeekMappingConfig>({ years: [] });
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(1);

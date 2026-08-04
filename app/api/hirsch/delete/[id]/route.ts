@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import {
   loadHirschData, saveHirschData, loadHirschRaw, deleteHirschRaw, rebuildHirschAggregates,
 } from '@/lib/hirschData';
@@ -9,7 +10,7 @@ import { runAutoCalcForMonth } from '@/lib/autoCalc';
 export const dynamic = 'force-dynamic';
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.upload.dispo');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;

@@ -83,6 +83,10 @@ export interface PlannerSheet {
   stores: PlannerStoreRow[];
   /** True when any cell was marked with a typed marker rather than a colour. */
   usesTypedMarkers: boolean;
+  /** True when a SITE CODE column was found, so stores resolve by code not name. */
+  hasCodeColumn: boolean;
+  /** How many store rows actually carry a code. */
+  storesWithCodes: number;
   warnings: string[];
 }
 
@@ -244,15 +248,107 @@ export function repNameFromFilename(filename: string): string {
  */
 function locateGrid(ws: ExcelJS.Worksheet): { dateRow: number; labelCol: number; dateStartCol: number } | null {
   const maxScanRow = Math.min(ws.rowCount, 25);
+  const maxCol = Math.min(ws.columnCount, 60);
+
   for (let r = 1; r <= maxScanRow; r++) {
-    for (let c = 1; c <= 10; c++) {
-      if (txt(ws.getRow(r).getCell(c)).trim().toUpperCase() !== 'DATE') continue;
-      if (txt(ws.getRow(r).getCell(c + 1)).trim() === '1' && txt(ws.getRow(r).getCell(c + 2)).trim() === '2') {
-        return { dateRow: r, labelCol: c, dateStartCol: c + 1 };
+    const row = ws.getRow(r);
+
+    // Find the calendar by its DAY NUMBERS — a run of 1, 2, 3, … at least 28
+    // long. Anchoring on the run rather than on "the cell right of DATE" is
+    // what makes this survive inserted columns: one planner gained a site-code
+    // column between the DATE label and day 1, which an adjacency check missed
+    // entirely and reported as "no calendar found".
+    for (let c = 1; c <= maxCol; c++) {
+      if (txt(row.getCell(c)).trim() !== '1') continue;
+      let run = 1;
+      while (c + run <= ws.columnCount && txt(row.getCell(c + run)).trim() === String(run + 1)) run++;
+      if (run < 28) continue;
+
+      // The label column holds the store names. Prefer the cell literally
+      // reading DATE on this row; otherwise take the nearest text cell to the
+      // left of the run.
+      let labelCol = -1;
+      for (let lc = c - 1; lc >= 1; lc--) {
+        if (txt(row.getCell(lc)).trim().toUpperCase() === 'DATE') { labelCol = lc; break; }
       }
+      if (labelCol < 0) {
+        for (let lc = c - 1; lc >= 1; lc--) {
+          if (txt(row.getCell(lc)).trim()) { labelCol = lc; break; }
+        }
+      }
+      if (labelCol < 0) continue;
+
+      return { dateRow: r, labelCol, dateStartCol: c };
     }
   }
   return null;
+}
+
+/**
+ * Headers that mean "the Perigee code for this store".
+ *
+ * Matched on the HEADER TEXT, never on a column position: reps insert and shift
+ * columns, and the code column has already appeared in different places in
+ * different files. Whichever column carries one of these labels is the code
+ * column, wherever it ends up.
+ */
+const CODE_HEADERS = [
+  'SITE CODE', 'SITECODE', 'SITE CODES',
+  'STORE CODE', 'STORECODE', 'STORE CODES',
+  'PERIGEE CODE', 'PERIGEECODE', 'PERIGEE SITE CODE',
+  'SITE ID', 'STORE ID', 'CODE',
+];
+
+/**
+ * Find the store-code column.
+ *
+ * Never by position — the planners disagree with each other and are actively
+ * being edited, so the code has turned up in different columns in different
+ * files. Instead, in priority order:
+ *
+ *  1. A column sitting BETWEEN the store names and day 1. That gap only exists
+ *     because someone inserted a column there, and the only reason to insert
+ *     one is the site code. This catches a freshly inserted column even before
+ *     anyone has typed a header over it.
+ *  2. Any column whose header text matches a known code label.
+ *
+ * Returns -1 when there is no code column, in which case matching falls back to
+ * the (far less reliable) store name.
+ */
+function locateCodeColumn(
+  ws: ExcelJS.Worksheet,
+  dateRow: number,
+  labelCol: number,
+  dateStartCol: number,
+): number {
+  const headerText = (c: number) => {
+    // Look a couple of rows past the date row too: on one planner the SITE CODE
+    // label was typed on the first region row, below the calendar header.
+    for (let r = 1; r <= dateRow + 2; r++) {
+      const v = txt(ws.getRow(r).getCell(c)).trim().toUpperCase().replace(/\s+/g, ' ');
+      if (v && CODE_HEADERS.includes(v)) return true;
+    }
+    return false;
+  };
+
+  // 1. The gap between the names and the calendar.
+  const gap: number[] = [];
+  for (let c = labelCol + 1; c < dateStartCol; c++) gap.push(c);
+  if (gap.length > 0) {
+    const labelled = gap.find(headerText);
+    if (labelled) return labelled;
+    // Exactly one unexplained column here is the inserted code column.
+    if (gap.length === 1) return gap[0];
+  }
+
+  // 2. A labelled column anywhere in the header block.
+  const maxCol = Math.max(labelCol + 2, 10);
+  for (let c = 1; c <= maxCol; c++) {
+    if (c >= dateStartCol) break;
+    if (headerText(c)) return c;
+  }
+
+  return -1;
 }
 
 export function parseSnoMasterPlanner(workbook: ExcelJS.Workbook, filename = ''): PlannerParseResult {
@@ -267,6 +363,7 @@ export function parseSnoMasterPlanner(workbook: ExcelJS.Workbook, filename = '')
     }
     const { dateRow, labelCol, dateStartCol } = grid;
     const sheetWarnings: string[] = [];
+    const codeCol = locateCodeColumn(ws, dateRow, labelCol, dateStartCol);
 
     // Day numbers, and the weekday header directly above them.
     const days: number[] = [];
@@ -349,12 +446,12 @@ export function parseSnoMasterPlanner(workbook: ExcelJS.Workbook, filename = '')
         continue;
       }
 
-      // The STORE CODE column, when the rep bothered to fill it in.
-      let storeCode = '';
-      for (let c = 1; c <= labelCol - 2; c++) {
-        const t = txt(row.getCell(c)).trim();
-        if (t && !/^\d+$/.test(t)) { storeCode = t; break; }
-      }
+      // The Perigee code, read from whichever column carries the SITE CODE
+      // header. A typed code is authoritative — it removes the guesswork that
+      // name matching against ~94,000 stores would otherwise require.
+      let storeCode = codeCol > 0 ? txt(row.getCell(codeCol)).trim() : '';
+      // A bare row number in that column is the rep's own numbering, not a code.
+      if (/^\d{1,3}$/.test(storeCode) && storeCode === idxCell) storeCode = '';
 
       const marks: PlannerStoreRow['marks'] = [];
       for (let i = 0; i < days.length; i++) {
@@ -404,6 +501,17 @@ export function parseSnoMasterPlanner(workbook: ExcelJS.Workbook, filename = '')
       sheetWarnings.push('This sheet marks in-store days with a typed marker — colours are ignored for those cells.');
     }
 
+    const storesWithCodes = stores.filter(s => s.storeCode).length;
+    if (codeCol < 0) {
+      sheetWarnings.push(
+        'No SITE CODE column found, so stores have to be matched on their names. Add a "SITE CODE" column with the Perigee code to make this exact.',
+      );
+    } else if (storesWithCodes < stores.length) {
+      sheetWarnings.push(
+        `${stores.length - storesWithCodes} of ${stores.length} store rows have no site code — those fall back to name matching.`,
+      );
+    }
+
     sheets.push({
       sheetName: ws.name,
       title,
@@ -417,6 +525,8 @@ export function parseSnoMasterPlanner(workbook: ExcelJS.Workbook, filename = '')
       legend,
       stores,
       usesTypedMarkers,
+      hasCodeColumn: codeCol > 0,
+      storesWithCodes,
       warnings: sheetWarnings,
     });
   }

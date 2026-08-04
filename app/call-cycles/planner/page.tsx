@@ -50,6 +50,8 @@ interface SheetAnalysis {
   gridMonth: number | null;
   gridYear: number | null;
   usesTypedMarkers: boolean;
+  hasCodeColumn: boolean;
+  storesWithCodes: number;
   legend: LegendEntry[];
   storeCount: number;
   storesWithVisits: number;
@@ -105,7 +107,7 @@ function swatch(fill: string): string {
 }
 
 export default function PlannerUploadPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('cc.planner.upload');
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysing, setAnalysing] = useState(false);
@@ -377,6 +379,9 @@ export default function PlannerUploadPage() {
                     <strong>{sh.gridMonth ? `${MONTHS[sh.gridMonth - 1]} ${sh.gridYear}` : 'month unknown'}</strong>
                     {' '}&middot; {sh.storeCount} store rows
                     {sh.usesTypedMarkers && <> &middot; <span style={{ color: '#065f46', fontWeight: 600 }}>uses typed markers</span></>}
+                    {sh.hasCodeColumn
+                      ? <> &middot; <span style={{ color: '#065f46', fontWeight: 600 }}>site codes: {sh.storesWithCodes}/{sh.storeCount}</span></>
+                      : <> &middot; <span style={{ color: '#b45309', fontWeight: 600 }}>no site code column — matching on names</span></>}
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>

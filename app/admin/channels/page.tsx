@@ -13,7 +13,7 @@ interface Channel {
 }
 
 export default function ChannelsPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin']);
+  const { session, loading: authLoading, logout } = useAuth('system.channels.view');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [newName, setNewName] = useState('');
   const [newParentId, setNewParentId] = useState('');

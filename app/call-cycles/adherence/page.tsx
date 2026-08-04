@@ -58,7 +58,7 @@ function today(): string {
 }
 
 export default function AdherencePage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin', 'client']);
+  const { session, loading: authLoading, logout } = useAuth('cc.adherence.view');
   const [data, setData] = useState<AdherenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

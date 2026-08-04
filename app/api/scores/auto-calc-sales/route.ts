@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadTargetData, getStoreTarget } from '@/lib/targetData';
 import { loadDispoData, calcSalesValue } from '@/lib/dispoData';
 import { loadStores, buildCodeToSalesName } from '@/lib/storeData';
-import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
+import { loadVisitIndex, loadVisitData, filterVisitsByProject } from '@/lib/visitData';
 import { loadKPIControls } from '@/lib/kpiControls';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ function toDispoMonth(yyyyMm: string): string {
 
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.scores.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     // Track both siteCode and storeName for each store
     const baStores = new Map<string, { repName: string; stores: Map<string, string> }>();
     for (const upload of visitIndex) {
-      const visits = await loadVisitData(upload.id);
+      const visits = filterVisitsByProject(await loadVisitData(upload.id), 'ba');
       for (const v of visits) {
         if (!v.checkInDate || !v.email) continue;
         // checkInDate is YYYY-MM-DD; month is YYYY-MM

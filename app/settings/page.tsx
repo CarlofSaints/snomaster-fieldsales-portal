@@ -18,10 +18,23 @@ interface PollSchedule {
   timezone: string;
 }
 
+/**
+ * Which business a token's visits belong to. Brand ambassadors and SnoMaster's
+ * own reps are both in Perigee, so the token is what decides which project a
+ * visit is scored under — see lib/perigee.ts.
+ */
+type PerigeeProject = 'ba' | 'reps';
+
+const PROJECT_OPTIONS: { value: PerigeeProject; label: string; short: string }[] = [
+  { value: 'ba', label: 'BA Measurement (Marketing)', short: 'BA' },
+  { value: 'reps', label: 'SnoMaster Reps — Call Cycles (Sales)', short: 'Reps' },
+];
+
 interface TokenView {
   id: string;
   label: string;
   enabled: boolean;
+  project: PerigeeProject;
   masked: string;
   hasKey: boolean;
 }
@@ -39,6 +52,7 @@ interface TokenRow {
   id: string;
   label: string;
   enabled: boolean;
+  project: PerigeeProject;
   apiKey: string;
   masked: string;
   hasKey: boolean;
@@ -100,7 +114,7 @@ const DEFAULT_BODY = JSON.stringify({
 }, null, 2);
 
 export default function SettingsPage() {
-  const { session, loading: authLoading, logout } = useAuth('super_admin');
+  const { session, loading: authLoading, logout } = useAuth('system.settings.view');
   const [config, setConfig] = useState<PerigeeConfig | null>(null);
   const [form, setForm] = useState({ endpoint: '', enabled: false });
   const [tokens, setTokens] = useState<TokenRow[]>([]);
@@ -132,7 +146,7 @@ export default function SettingsPage() {
         setConfig(data);
         setForm({ endpoint: data.endpoint || '', enabled: data.enabled || false });
         setTokens(Array.isArray(data.tokens)
-          ? data.tokens.map((t: TokenView) => ({ id: t.id, label: t.label, enabled: t.enabled, masked: t.masked, hasKey: t.hasKey, apiKey: '' }))
+          ? data.tokens.map((t: TokenView) => ({ id: t.id, label: t.label, enabled: t.enabled, project: t.project ?? 'ba', masked: t.masked, hasKey: t.hasKey, apiKey: '' }))
           : []);
         if (data.requestBody) setRequestBody(data.requestBody);
       })
@@ -269,7 +283,7 @@ export default function SettingsPage() {
         const data = await r2.json();
         setConfig(data);
         setTokens(Array.isArray(data.tokens)
-          ? data.tokens.map((t: TokenView) => ({ id: t.id, label: t.label, enabled: t.enabled, masked: t.masked, hasKey: t.hasKey, apiKey: '' }))
+          ? data.tokens.map((t: TokenView) => ({ id: t.id, label: t.label, enabled: t.enabled, project: t.project ?? 'ba', masked: t.masked, hasKey: t.hasKey, apiKey: '' }))
           : []);
       } else {
         setToast({ msg: 'Save failed', type: 'error' });
@@ -282,7 +296,7 @@ export default function SettingsPage() {
   }
 
   function addToken() {
-    setTokens(ts => [...ts, { id: crypto.randomUUID(), label: `Token ${ts.length + 1}`, enabled: true, apiKey: '', masked: '', hasKey: false }]);
+    setTokens(ts => [...ts, { id: crypto.randomUUID(), label: `Token ${ts.length + 1}`, enabled: true, project: 'ba', apiKey: '', masked: '', hasKey: false }]);
   }
 
   function updateToken(id: string, field: keyof TokenRow, value: string | boolean) {
@@ -300,7 +314,8 @@ export default function SettingsPage() {
     tokens.length !== (config?.tokens?.length ?? 0) ||
     tokens.some(t => {
       const s = savedTokenById.get(t.id);
-      return !s || s.label !== t.label || s.enabled !== t.enabled || t.apiKey.trim() !== '';
+      return !s || s.label !== t.label || s.enabled !== t.enabled
+        || (s.project ?? 'ba') !== t.project || t.apiKey.trim() !== '';
     });
 
   async function callPoll(mode: 'test' | 'import') {
@@ -465,6 +480,13 @@ export default function SettingsPage() {
                 Add one token per Perigee account/scope. Polling calls the endpoint once per enabled
                 token and merges + de-duplicates all visits — use this when no single user covers every store.
               </p>
+              <div style={{ fontSize: '0.74rem', color: '#1e40af', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.55rem 0.8rem', margin: '0 0 0.7rem' }}>
+                <strong>Set the project on every token.</strong> Brand ambassadors and SnoMaster&apos;s own
+                reps are both in Perigee, but their data must never mix. Each visit is tagged with the
+                project of the token it arrived on: <strong>BA</strong> visits feed the leaderboard and
+                scorecards, <strong>Reps</strong> visits feed call cycle adherence. A token left on BA
+                will put internal reps on the BA leaderboard.
+              </div>
 
               {tokens.length === 0 && (
                 <p style={{ color: '#6b7280', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '0.6rem' }}>
@@ -502,6 +524,33 @@ export default function SettingsPage() {
                       placeholder={t.hasKey ? `Leave blank to keep current (${t.masked})` : 'Paste Bearer token'}
                       style={{ fontSize: '0.8rem' }}
                     />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.45rem' }}>
+                      <label style={{ fontSize: '0.72rem', color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        Project
+                      </label>
+                      <select
+                        className="input"
+                        value={t.project}
+                        onChange={e => updateToken(t.id, 'project', e.target.value)}
+                        style={{
+                          fontSize: '0.78rem', flex: 1, maxWidth: 320,
+                          borderColor: t.project === 'reps' ? '#fdba74' : '#bfdbfe',
+                          background: t.project === 'reps' ? '#fff7ed' : '#eff6ff',
+                        }}
+                      >
+                        {PROJECT_OPTIONS.map(p => (
+                          <option key={p.value} value={p.value}>{p.label}</option>
+                        ))}
+                      </select>
+                      <span style={{
+                        fontSize: '0.66rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                        background: t.project === 'reps' ? '#ffedd5' : '#dbeafe',
+                        color: t.project === 'reps' ? '#9a3412' : '#1e40af',
+                        border: `1px solid ${t.project === 'reps' ? '#fdba74' : '#93c5fd'}`,
+                      }}>
+                        {PROJECT_OPTIONS.find(p => p.value === t.project)?.short ?? 'BA'}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>

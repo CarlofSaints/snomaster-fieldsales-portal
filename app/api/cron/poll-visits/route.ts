@@ -148,7 +148,7 @@ export async function GET(req: NextRequest) {
     // Map, drop excluded reps (test BAs), and deduplicate
     const excluded = excludedEmailSet(await loadExcludedReps());
     const mappedVisits: Visit[] = filterExcluded(
-      rawVisits.map(mapPerigeeVisit).filter(v => v.storeName || v.repName),
+      rawVisits.map(v => mapPerigeeVisit(v.row, v.project)).filter(v => v.storeName || v.repName),
       excluded,
     );
 

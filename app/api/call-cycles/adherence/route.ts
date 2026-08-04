@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
-import { loadVisitIndex, loadVisitData, visitDedupeKey, type Visit } from '@/lib/visitData';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
+import { loadAllVisits } from '@/lib/visitData';
 import { loadScheduleWithTeamLeaders } from '@/lib/callcycle/scheduleData';
 import { computeAdherence, type AdherenceVisit } from '@/lib/callcycle/adherenceCalc';
 import { loadStores, storeAllCodes } from '@/lib/storeData';
@@ -28,7 +29,7 @@ function normalizeDate(raw: string): string {
 }
 
 export async function GET(req: NextRequest) {
-  const actor = await requireRole(req, ['super_admin', 'admin', 'client']);
+  const actor = await requirePermission(req, 'cc.adherence.view');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -43,26 +44,14 @@ export async function GET(req: NextRequest) {
     const from = fromParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const to = toParam || normalizeDate(now.toISOString());
 
-    const [schedule, index, stores] = await Promise.all([
+    // Only the INTERNAL REPS' visits. Brand-ambassador visits come through the
+    // same Perigee pipeline but belong to the other project, and counting them
+    // here would credit call cycle adherence to people who have no call cycle.
+    const [schedule, deduped, stores] = await Promise.all([
       loadScheduleWithTeamLeaders(),
-      loadVisitIndex(),
+      loadAllVisits('reps'),
       loadStores(),
     ]);
-
-    const allVisits: Visit[] = [];
-    for (const meta of index) {
-      allVisits.push(...await loadVisitData(meta.id));
-    }
-
-    // Same dedupe the visits API uses — otherwise re-uploaded months double-count.
-    const seen = new Set<string>();
-    const deduped: Visit[] = [];
-    for (const v of allVisits) {
-      const key = visitDedupeKey(v);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      deduped.push(v);
-    }
 
     // Perigee logs some stores under several codes. Fold every alias onto the
     // store's primary Perigee code so a visit under an alias still counts

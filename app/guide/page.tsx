@@ -109,7 +109,7 @@ const KPI_ROWS: KPIRow[] = [
 ];
 
 export default function GuidePage() {
-  const { session, loading: authLoading, logout } = useAuth();
+  const { session, loading: authLoading, logout } = useAuth('ba.guide.view');
 
   if (authLoading || !session) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>Loading...</div>;

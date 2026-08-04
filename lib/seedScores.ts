@@ -1,4 +1,4 @@
-import { loadVisitIndex, loadVisitData, Visit } from './visitData';
+import { loadVisitIndex, loadVisitData, Visit, filterVisitsByProject } from './visitData';
 import { loadScores, saveScores, BAScore } from './scoreData';
 import { loadScoringConfig } from './scoringConfig';
 import { countTrainingsForMonth } from './trainingData';
@@ -27,7 +27,7 @@ export async function seedScoresFromVisits(
   const index = await loadVisitIndex();
   const allVisits: Visit[] = [];
   for (const meta of index) {
-    const visits = await loadVisitData(meta.id);
+    const visits = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
     allVisits.push(...visits);
   }
 

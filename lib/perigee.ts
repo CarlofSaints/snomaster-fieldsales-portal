@@ -12,11 +12,33 @@ import { fetchAllPerigeeVisits, PerigeeFetchError } from './perigeeFetch';
  * visit dedup pipeline (visitDedupeKey).
  */
 
+/**
+ * Which of the two businesses a token's visits belong to.
+ *
+ *   'ba'   — 3rd-party brand ambassadors, the BA Measurement project (Marketing)
+ *   'reps' — SnoMaster's own internal reps, the Call Cycles project (Sales)
+ *
+ * Both live in the same Perigee account but must never be scored together, so
+ * the project is decided by which token the visit arrived on and travels with
+ * every visit from there.
+ */
+export type PerigeeProject = 'ba' | 'reps';
+
+export const PERIGEE_PROJECTS: { value: PerigeeProject; label: string }[] = [
+  { value: 'ba', label: 'BA Measurement (Marketing)' },
+  { value: 'reps', label: 'SnoMaster Reps — Call Cycles (Sales)' },
+];
+
 export interface PerigeeToken {
   id: string;
   label: string;     // human label, e.g. "Makro reps" / "Hirsch's reps"
   apiKey: string;
   enabled: boolean;
+  /**
+   * Defaults to 'ba' on any token stored before the split, which is correct —
+   * every token that existed then was a BA token.
+   */
+  project: PerigeeProject;
 }
 
 export interface PerigeeConfig {
@@ -50,7 +72,7 @@ export function normalizePerigeeConfig(raw: Partial<PerigeeConfig> | null | unde
   };
   // Migrate a legacy single token into the list
   if (cfg.tokens.length === 0 && raw?.apiKey) {
-    cfg.tokens = [{ id: 'legacy', label: 'Token 1', apiKey: raw.apiKey, enabled: true }];
+    cfg.tokens = [{ id: 'legacy', label: 'Token 1', apiKey: raw.apiKey, enabled: true, project: 'ba' }];
   }
   return cfg;
 }
@@ -61,6 +83,8 @@ function normalizeToken(t: Partial<PerigeeToken>): PerigeeToken {
     label: t.label || 'Token',
     apiKey: t.apiKey || '',
     enabled: t.enabled !== false,
+    // Anything stored before the split predates internal reps, so it is BA.
+    project: t.project === 'reps' ? 'reps' : 'ba',
   };
 }
 
@@ -81,9 +105,14 @@ export function maskToken(key: string): string {
   return key ? '••••' + key.slice(-4) : '';
 }
 
-/** Tokens that are enabled and actually have a key — the ones we poll. */
-export function activeTokens(cfg: PerigeeConfig): PerigeeToken[] {
-  return cfg.tokens.filter(t => t.enabled && t.apiKey.trim());
+/**
+ * Tokens that are enabled and actually have a key — the ones we poll.
+ * Pass a project to poll only that side of the business.
+ */
+export function activeTokens(cfg: PerigeeConfig, project?: PerigeeProject): PerigeeToken[] {
+  return cfg.tokens.filter(t =>
+    t.enabled && t.apiKey.trim() && (!project || t.project === project)
+  );
 }
 
 /** Pull the visits array out of whatever shape Perigee returns. */
@@ -101,6 +130,8 @@ export function extractRawVisits(perigeeData: unknown): Record<string, unknown>[
 export interface TokenFetchResult {
   tokenId: string;
   label: string;
+  /** Which business this token's visits belong to. */
+  project: PerigeeProject;
   ok: boolean;
   status?: number;
   count: number;
@@ -124,7 +155,7 @@ export async function fetchVisitsForToken(
   try {
     const { rows, firstPageMeta } = await fetchAllPerigeeVisits(endpoint, token.apiKey, body);
     return {
-      tokenId: token.id, label: token.label, ok: true, status: 200,
+      tokenId: token.id, label: token.label, project: token.project, ok: true, status: 200,
       count: rows.length, rawVisits: rows,
       // Test mode reads `.visits` (pagination meta) off raw — the helper already
       // stripped `data`, so wrap the page-1 meta back under `visits`.
@@ -132,24 +163,34 @@ export async function fetchVisitsForToken(
     };
   } catch (err) {
     if (err instanceof PerigeeFetchError) {
-      return { tokenId: token.id, label: token.label, ok: false, status: err.status, count: 0, error: `${err.status}: ${err.detail.slice(0, 200)}`, rawVisits: [] };
+      return { tokenId: token.id, label: token.label, project: token.project, ok: false, status: err.status, count: 0, error: `${err.status}: ${err.detail.slice(0, 200)}`, rawVisits: [] };
     }
-    return { tokenId: token.id, label: token.label, ok: false, count: 0, error: err instanceof Error ? err.message : 'Fetch failed', rawVisits: [] };
+    return { tokenId: token.id, label: token.label, project: token.project, ok: false, count: 0, error: err instanceof Error ? err.message : 'Fetch failed', rawVisits: [] };
   }
 }
 
 /**
  * Call the endpoint for every active token and combine the raw visit rows.
  * One token failing does NOT abort the others — its error is reported in `perToken`.
+ *
+ * Rows come back TAGGED with the project of the token that fetched them. This
+ * is the join that keeps the two businesses apart: without it, adding a rep
+ * token would quietly drop internal reps into the BA leaderboard.
  */
 export async function fetchAllVisits(
   cfg: PerigeeConfig,
   body: Record<string, unknown>,
   keepRaw = false,
-): Promise<{ rawVisits: Record<string, unknown>[]; perToken: TokenFetchResult[] }> {
-  const tokens = activeTokens(cfg);
-  const perToken = await Promise.all(tokens.map((t, i) => fetchVisitsForToken(cfg.endpoint, t, body, keepRaw && i === 0)));
-  const rawVisits = perToken.flatMap(r => r.rawVisits);
+  project?: PerigeeProject,
+): Promise<{
+  rawVisits: { row: Record<string, unknown>; project: PerigeeProject }[];
+  perToken: TokenFetchResult[];
+}> {
+  const tokens = activeTokens(cfg, project);
+  const perToken = await Promise.all(
+    tokens.map((t, i) => fetchVisitsForToken(cfg.endpoint, t, body, keepRaw && i === 0)),
+  );
+  const rawVisits = perToken.flatMap(r => r.rawVisits.map(row => ({ row, project: r.project })));
   return { rawVisits, perToken };
 }
 
@@ -174,8 +215,8 @@ function calcDuration(checkInTime: string, checkOutTime: string, startDateFull: 
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-/** Map a raw Perigee row to our Visit shape. */
-export function mapPerigeeVisit(row: Record<string, unknown>): Visit {
+/** Map a raw Perigee row to our Visit shape, stamped with its project. */
+export function mapPerigeeVisit(row: Record<string, unknown>, project: PerigeeProject = 'ba'): Visit {
   const str = (key: string) => String(row[key] ?? '').trim();
   const num = (key: string) => parseInt(String(row[key] ?? '0')) || 0;
 
@@ -221,5 +262,6 @@ export function mapPerigeeVisit(row: Record<string, unknown>): Visit {
     status,
     networkOnCheckIn: str('networkOnCheckIn') || '',
     visitId: visitId || undefined,
+    project,
   };
 }

@@ -5,7 +5,8 @@ import {
   deleteScheduleRow,
   clearSchedule,
 } from '@/lib/callcycle/scheduleData';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
 import type { ScheduleRow } from '@/lib/callcycle/types';
 
@@ -16,7 +17,7 @@ const VIEW_ROLES = ['super_admin', 'admin', 'client'] as const;
 const EDIT_ROLES = ['super_admin', 'admin'] as const;
 
 export async function GET(req: Request) {
-  const actor = await requireRole(req, [...VIEW_ROLES]);
+  const actor = await requirePermission(req, 'cc.schedule.view');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const actor = await requireRole(req, [...EDIT_ROLES]);
+  const actor = await requirePermission(req, 'cc.schedule.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -51,7 +52,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const actor = await requireRole(req, [...EDIT_ROLES]);
+  const actor = await requirePermission(req, 'cc.schedule.manage');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }

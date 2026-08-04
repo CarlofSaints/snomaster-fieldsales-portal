@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
-import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
+import { loadVisitIndex, loadVisitData, filterVisitsByProject } from '@/lib/visitData';
 import { loadScoringConfig } from '@/lib/scoringConfig';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,7 @@ interface AutoCalcResult {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['admin', 'super_admin']);
+  const user = await requirePermission(req, 'ba.scores.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
     const index = await loadVisitIndex();
     const allVisits = [];
     for (const meta of index) {
-      const visits = await loadVisitData(meta.id);
+      const visits = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
       allVisits.push(...visits);
     }
 

@@ -49,7 +49,7 @@ const emptyForm = (): ReminderForm => ({
 });
 
 export default function RemindersPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.reminders.view');
   const [reminders, setReminders] = useState<EmailReminder[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [showModal, setShowModal] = useState(false);

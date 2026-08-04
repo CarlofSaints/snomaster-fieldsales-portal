@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadPerigeeConfig, activeTokens, fetchAllVisits, mapPerigeeVisit } from '@/lib/perigee';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const secret = url.searchParams.get('secret') || '';
   if (secret !== 'snomaster-seed-2026') {
-    const user = await requireRole(req, ['super_admin']);
+    const user = await requirePermission(req, 'ba.perigee.manage');
     if (!user) return NextResponse.json({ error: 'Unauthorized — add &secret=snomaster-seed-2026' }, { status: 401 });
   }
 
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
   const body = { ...base, startDate: from, endDate: to };
 
   const { rawVisits, perToken } = await fetchAllVisits(cfg, body);
-  const mapped = rawVisits.map(mapPerigeeVisit);
+  const mapped = rawVisits.map(v => mapPerigeeVisit(v.row, v.project));
   const matches = q ? mapped.filter(v => (v.storeName || '').toLowerCase().includes(q)) : mapped;
 
   const byMonth: Record<string, number> = {};

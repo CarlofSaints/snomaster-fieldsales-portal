@@ -7,7 +7,8 @@ import { validatePlanner } from '@/lib/callcycle/parsers/plannerValidation';
 import { buildStoreMatcher } from '@/lib/callcycle/storeMatcher';
 import { loadReferences } from '@/lib/callcycle/referenceData';
 import { loadTeamControl } from '@/lib/callcycle/controlData';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,7 +24,7 @@ export const maxDuration = 60;
  * does the writing.
  */
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ['super_admin', 'admin']);
+  const actor = await requirePermission(req, 'cc.planner.upload');
   if (!actor) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noCacheHeaders() });
   }
@@ -100,6 +101,8 @@ export async function POST(req: NextRequest) {
         sheetNameMonth: sheet.sheetNameMonth,
         titleMonth: sheet.titleMonth,
         usesTypedMarkers: sheet.usesTypedMarkers,
+        hasCodeColumn: sheet.hasCodeColumn,
+        storesWithCodes: sheet.storesWithCodes,
         legend: sheet.legend,
         storeCount: sheet.stores.length,
         storesWithVisits: cycles.length,

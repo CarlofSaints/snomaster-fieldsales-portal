@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadTargetData, saveTargetData, TargetEntry, TargetUploadMeta } from '@/lib/targetData';
 import { writeJson } from '@/lib/blob';
 import { put } from '@vercel/blob';
@@ -17,7 +18,7 @@ const MONTH_PREFIX: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.upload.targets');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

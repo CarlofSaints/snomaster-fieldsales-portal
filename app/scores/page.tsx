@@ -49,7 +49,7 @@ function monthLabel(month: string) {
 const MTD = 0;
 
 export default function ScoreEntryPage() {
-  const { session, loading: authLoading, logout } = useAuth(['admin', 'super_admin']);
+  const { session, loading: authLoading, logout } = useAuth(['ba.scores.view', 'ba.scores.manage']);
   const [month, setMonth] = useState(currentMonth());
   const [weeks, setWeeks] = useState<WeekDef[]>([]);
   const [selectedWeek, setSelectedWeek] = useState<number>(MTD);

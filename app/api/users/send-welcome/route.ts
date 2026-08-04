@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadUsers, saveUsers } from '@/lib/userData';
 import { sendEmail, welcomeEmailHtml, WELCOME_SUBJECT } from '@/lib/email';
 import bcrypt from 'bcryptjs';
@@ -7,7 +8,7 @@ import bcrypt from 'bcryptjs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const admin = await requireRole(req, ['admin', 'super_admin']);
+  const admin = await requirePermission(req, 'system.users.manage');
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

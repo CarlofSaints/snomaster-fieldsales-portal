@@ -35,7 +35,7 @@ function fmtDate(iso?: string): string {
 }
 
 export default function ControlFilesPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('cc.control_files.manage');
   const [storeStatus, setStoreStatus] = useState<StoreStatus | null>(null);
   const [teamStatus, setTeamStatus] = useState<TeamStatus | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);

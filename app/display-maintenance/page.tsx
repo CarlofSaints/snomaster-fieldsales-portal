@@ -174,7 +174,7 @@ const STORE_COL_W = 170;
 /* ── Main Page ── */
 
 export default function DisplayMaintenancePage() {
-  const { session, loading: authLoading, logout } = useAuth(['admin', 'super_admin', 'client']);
+  const { session, loading: authLoading, logout } = useAuth('ba.kpi.display');
   const [month, setMonth] = useState(currentMonth());
 
   const [summaryData, setSummaryData] = useState<DisplaySummary | null>(null);

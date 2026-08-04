@@ -109,8 +109,7 @@ export interface StoreMatcher {
 }
 
 export function buildStoreMatcher(stores: ReferenceStore[]): StoreMatcher {
-  // Pre-compute the normalised forms once — a planner has up to ~130 stores and
-  // the Perigee list runs to tens of thousands, so this is the hot loop.
+  // Pre-compute the normalised forms once.
   const prepared = stores.map(s => ({
     ref: s,
     squished: squish(stripNotes(s.storeName)),
@@ -125,6 +124,78 @@ export function buildStoreMatcher(stores: ReferenceStore[]): StoreMatcher {
   for (const p of prepared) {
     const c = (p.ref.storeCode || '').trim().toUpperCase();
     if (c && !byCode.has(c)) byCode.set(c, p);
+  }
+
+  /**
+   * Inverted index: token -> the stores containing it.
+   *
+   * The real Perigee list is ~94,000 stores. Scoring a planner's 130 names
+   * against all of them would be ~12 million Levenshtein runs and would time
+   * the request out. Instead we look up candidates that share a word with the
+   * query — typically a few dozen — and only score those.
+   */
+  const byToken = new Map<string, number[]>();
+  /**
+   * Secondary index on the first four letters of each word. The typos that
+   * matter most are inside the DISTINCTIVE word — "Carnivile" for "Carnival",
+   * "Strunenvalley" for "Strubensvalley" — so the exact-token index finds
+   * nothing and the brand word alone is too common to narrow on. Sharing a
+   * prefix still pulls the right candidate into scoring range.
+   */
+  const byPrefix = new Map<string, number[]>();
+  prepared.forEach((p, i) => {
+    for (const t of new Set(p.normed.split(' ').filter(t => t.length > 2))) {
+      const list = byToken.get(t);
+      if (list) list.push(i); else byToken.set(t, [i]);
+
+      if (t.length >= 4) {
+        const pre = t.slice(0, 4);
+        const plist = byPrefix.get(pre);
+        if (plist) plist.push(i); else byPrefix.set(pre, [i]);
+      }
+    }
+  });
+
+  /** Tokens shared by half the list ("store", "the") are useless for narrowing. */
+  const TOKEN_CAP = Math.max(500, Math.floor(prepared.length * 0.05));
+
+  function candidateIndexes(query: string): number[] {
+    const tokens = [...new Set(norm(query).split(' ').filter(t => t.length > 2))];
+    if (tokens.length === 0) return [];
+
+    // Count how many query tokens each store shares, ignoring tokens so common
+    // they'd drag in most of the list.
+    const hits = new Map<number, number>();
+    for (const t of tokens) {
+      const list = byToken.get(t);
+      if (!list || list.length > TOKEN_CAP) continue;
+      for (const i of list) hits.set(i, (hits.get(i) ?? 0) + 1);
+    }
+    // Also pull in anything sharing a word PREFIX, which is what rescues a
+    // misspelled distinctive word. Scored on half weight so a genuine
+    // whole-token match still wins.
+    for (const t of tokens) {
+      if (t.length < 4) continue;
+      const list = byPrefix.get(t.slice(0, 4));
+      if (!list || list.length > TOKEN_CAP) continue;
+      for (const i of list) hits.set(i, (hits.get(i) ?? 0) + 0.5);
+    }
+
+    if (hits.size === 0) return [];
+
+    // Keep the strongest overlaps; a real match nearly always shares the brand
+    // AND the suburb, so anything sharing only one common word is noise.
+    const best = Math.max(...hits.values());
+    const threshold = best >= 2 ? 2 : (best >= 1 ? 1 : 0.5);
+    const out: number[] = [];
+    for (const [i, n] of hits) if (n >= threshold) out.push(i);
+    // Deterministic cap: keep the best-overlapping candidates, not an arbitrary
+    // slice, so a large result set can't drop the right answer by ordering luck.
+    if (out.length > 400) {
+      out.sort((a, b) => (hits.get(b) ?? 0) - (hits.get(a) ?? 0));
+      return out.slice(0, 400);
+    }
+    return out;
   }
 
   function match(name: string, hintCode?: string): StoreMatch {
@@ -155,11 +226,12 @@ export function buildStoreMatcher(stores: ReferenceStore[]): StoreMatcher {
       };
     }
 
-    // Score every candidate: string similarity plus how many of the planner's
-    // words landed. Token overlap carries most of the weight because the retail
-    // brand and the suburb are what actually identify a store.
+    // Score only the shortlist from the inverted index. Token overlap carries
+    // most of the weight because the retail brand and the suburb are what
+    // actually identify a store.
     const scored: { p: typeof prepared[number]; score: number }[] = [];
-    for (const p of prepared) {
+    for (const idx of candidateIndexes(cleaned)) {
+      const p = prepared[idx];
       if (!p.squished) continue;
       // Cheap reject: wildly different lengths can't be the same shop.
       if (Math.abs(p.squished.length - sq.length) > Math.max(8, sq.length * 0.6)) continue;

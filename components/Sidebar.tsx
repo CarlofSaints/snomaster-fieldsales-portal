@@ -1,59 +1,66 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { Role } from '@/lib/userData';
+import { getSession } from '@/lib/useAuth';
 
 interface NavItem {
   label: string;
   href: string;
   icon: string;
-  roles: Role[];
+  /** Shown when the user holds ANY of these permissions. */
+  perms: string[];
 }
 
-/* ── Navigation structure ── */
+/* ── Navigation structure ──
+ *
+ * Every item is gated on a permission, never a role, so switching a whole
+ * project off for a role (Sales sees no BA pages, Marketing sees no Call
+ * Cycles) needs no change here. Empty groups hide themselves.
+ */
 
-const LEADERBOARD: NavItem = { label: 'Leaderboard', href: '/leaderboard', icon: '🏆', roles: ['super_admin', 'admin', 'client'] };
+const LEADERBOARD: NavItem = { label: 'Leaderboard', href: '/leaderboard', icon: '🏆', perms: ['ba.leaderboard.view'] };
 
 const KPI_ITEMS: NavItem[] = [
-  { label: 'Visit Analytics', href: '/dashboard', icon: '📊', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Training', href: '/training', icon: '📋', roles: ['super_admin', 'admin'] },
-  { label: 'Sales & Stock', href: '/sales', icon: '💰', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Display Maintenance', href: '/display-maintenance', icon: '🖥️', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Red Flags', href: '/red-flags', icon: '🚩', roles: ['super_admin', 'admin'] },
+  { label: 'Visit Analytics', href: '/dashboard', icon: '📊', perms: ['ba.dashboard.view'] },
+  { label: 'Training', href: '/training', icon: '📋', perms: ['ba.kpi.training'] },
+  { label: 'Sales & Stock', href: '/sales', icon: '💰', perms: ['ba.kpi.sales'] },
+  { label: 'Display Maintenance', href: '/display-maintenance', icon: '🖥️', perms: ['ba.kpi.display'] },
+  { label: 'Red Flags', href: '/red-flags', icon: '🚩', perms: ['ba.kpi.red_flags'] },
 ];
 
 const CALL_CYCLE_ITEMS: NavItem[] = [
-  { label: 'Schedule', href: '/call-cycles', icon: '🗓️', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Upload Planner', href: '/call-cycles/planner', icon: '📥', roles: ['super_admin', 'admin'] },
-  { label: 'Upload (other formats)', href: '/call-cycles/upload', icon: '📄', roles: ['super_admin', 'admin'] },
-  { label: 'Adherence', href: '/call-cycles/adherence', icon: '🎯', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Control Files', href: '/call-cycles/control-files', icon: '🗂️', roles: ['super_admin', 'admin'] },
+  { label: 'Schedule', href: '/call-cycles', icon: '🗓️', perms: ['cc.schedule.view'] },
+  { label: 'Upload Planner', href: '/call-cycles/planner', icon: '📥', perms: ['cc.planner.upload'] },
+  { label: 'Upload (other formats)', href: '/call-cycles/upload', icon: '📄', perms: ['cc.planner.upload'] },
+  { label: 'Adherence', href: '/call-cycles/adherence', icon: '🎯', perms: ['cc.adherence.view'] },
+  { label: 'Control Files', href: '/call-cycles/control-files', icon: '🗂️', perms: ['cc.control_files.manage'] },
 ];
 
 const AFTER_KPI_ITEMS: NavItem[] = [
-  { label: 'Score Entry', href: '/scores', icon: '✏️', roles: ['super_admin', 'admin'] },
-  { label: 'Reports', href: '/reports', icon: '📄', roles: ['super_admin', 'admin'] },
-  { label: 'Scoring Guide', href: '/guide', icon: '📖', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Site Guide', href: '/site-guide', icon: '📚', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Activity Log', href: '/activity-log', icon: '📝', roles: ['super_admin', 'admin'] },
+  { label: 'Score Entry', href: '/scores', icon: '✏️', perms: ['ba.scores.view', 'ba.scores.manage'] },
+  { label: 'Reports', href: '/reports', icon: '📄', perms: ['ba.reports.view'] },
+  { label: 'Scoring Guide', href: '/guide', icon: '📖', perms: ['ba.guide.view'] },
+  { label: 'Site Guide', href: '/site-guide', icon: '📚', perms: ['shared.site_guide.view'] },
+  { label: 'Activity Log', href: '/activity-log', icon: '📝', perms: ['shared.activity_log.view'] },
 ];
 
-const ACCOUNT_ITEM: NavItem = { label: 'Account', href: '/account', icon: '👤', roles: ['super_admin', 'admin', 'client'] };
+const ACCOUNT_ITEM: NavItem = { label: 'Account', href: '/account', icon: '👤', perms: [] };
 
 const CONTROL_ITEMS: NavItem[] = [
-  { label: 'Data Upload', href: '/upload', icon: '📤', roles: ['super_admin', 'admin'] },
-  { label: 'Reminders', href: '/reminders', icon: '🔔', roles: ['super_admin', 'admin'] },
-  { label: 'Sales Channels', href: '/admin/channels', icon: '📡', roles: ['super_admin'] },
-  { label: 'Stores', href: '/admin/stores', icon: '🏪', roles: ['super_admin', 'admin'] },
-  { label: 'Products', href: '/admin/products', icon: '📦', roles: ['super_admin', 'admin'] },
-  { label: 'BA Management', href: '/bas', icon: '🧑‍💼', roles: ['super_admin', 'admin'] },
-  { label: 'Users', href: '/users', icon: '👥', roles: ['super_admin', 'admin'] },
-  { label: 'KPI Controls', href: '/kpi-controls', icon: '🎯', roles: ['super_admin', 'admin'] },
-  { label: 'Week Mapping', href: '/week-mapping', icon: '📅', roles: ['super_admin', 'admin'] },
-  { label: 'Roles', href: '/roles', icon: '🔑', roles: ['super_admin'] },
-  { label: 'Settings', href: '/settings', icon: '⚙️', roles: ['super_admin'] },
+  { label: 'Data Upload', href: '/upload', icon: '📤', perms: ['ba.upload.visits', 'ba.upload.dispo', 'ba.upload.training', 'ba.upload.targets', 'ba.upload.display', 'ba.upload.red_flags'] },
+  { label: 'Reminders', href: '/reminders', icon: '🔔', perms: ['ba.reminders.view'] },
+  { label: 'Sales Channels', href: '/admin/channels', icon: '📡', perms: ['system.channels.view'] },
+  { label: 'Stores', href: '/admin/stores', icon: '🏪', perms: ['shared.stores.view'] },
+  { label: 'Products', href: '/admin/products', icon: '📦', perms: ['ba.products.manage'] },
+  { label: 'BA Management', href: '/bas', icon: '🧑‍💼', perms: ['ba.bas.view'] },
+  { label: 'Users', href: '/users', icon: '👥', perms: ['system.users.view'] },
+  { label: 'KPI Controls', href: '/kpi-controls', icon: '🎯', perms: ['ba.kpi_controls.view'] },
+  { label: 'Week Mapping', href: '/week-mapping', icon: '📅', perms: ['ba.week_mapping.manage'] },
+  { label: 'Roles', href: '/roles', icon: '🔑', perms: ['system.roles.manage'] },
+  { label: 'Settings', href: '/settings', icon: '⚙️', perms: ['system.settings.view'] },
 ];
 
 const SIDEBAR_KEY = 'snomaster_sidebar_open';
@@ -67,6 +74,12 @@ interface SidebarProps {
   role: Role;
   name: string;
   onLogout: () => void;
+  /**
+   * The signed-in user's permissions. Optional so existing callers keep
+   * compiling; when omitted the sidebar reads them from the stored session,
+   * which is where every page gets them anyway.
+   */
+  permissions?: string[];
 }
 
 function BurgerIcon() {
@@ -100,15 +113,29 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-export default function Sidebar({ role, name, onLogout }: SidebarProps) {
+export default function Sidebar({ role, name, onLogout, permissions }: SidebarProps) {
   const pathname = usePathname();
-  const visibleKPIItems = KPI_ITEMS.filter(item => item.roles.includes(role));
-  const visibleCycleItems = CALL_CYCLE_ITEMS.filter(item => item.roles.includes(role));
-  const visibleAfterKPI = AFTER_KPI_ITEMS.filter(item => item.roles.includes(role));
-  const visibleControlItems = CONTROL_ITEMS.filter(item => item.roles.includes(role));
+
+  const held = useMemo(() => {
+    const list = permissions ?? getSession()?.permissions;
+    return list ? new Set(list) : null;
+  }, [permissions]);
+
+  const can = useCallback((item: NavItem) => {
+    if (item.perms.length === 0) return true;
+    // A session predating the permission system has no list; fall back to the
+    // old role behaviour so an open tab degrades rather than emptying the menu.
+    if (!held) return role === 'super_admin' || role === 'admin';
+    return item.perms.some(p => held.has(p));
+  }, [held, role]);
+
+  const visibleKPIItems = KPI_ITEMS.filter(can);
+  const visibleCycleItems = CALL_CYCLE_ITEMS.filter(can);
+  const visibleAfterKPI = AFTER_KPI_ITEMS.filter(can);
+  const visibleControlItems = CONTROL_ITEMS.filter(can);
   const showControlCentre = visibleControlItems.length > 0;
-  const showLeaderboard = LEADERBOARD.roles.includes(role);
-  const showAccount = ACCOUNT_ITEM.roles.includes(role);
+  const showLeaderboard = can(LEADERBOARD);
+  const showAccount = true;
 
   const [open, setOpen] = useState(() => {
     if (typeof window === 'undefined') return true;

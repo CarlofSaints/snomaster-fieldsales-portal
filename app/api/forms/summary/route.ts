@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadTrainingIndex, loadTrainingData } from '@/lib/trainingData';
 import { loadDisplayIndex, loadDisplayData } from '@/lib/displayData';
 import { loadRedFlagIndex, loadRedFlagData } from '@/lib/redFlagData';
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
  * Returns form submission counts per rep, broken down by form type.
  */
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['admin', 'super_admin', 'client']);
+  const user = await requirePermission(req, 'ba.dashboard.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

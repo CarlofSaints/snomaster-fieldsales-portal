@@ -1,27 +1,31 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useAuth, authFetch } from '@/lib/useAuth';
 import Sidebar from '@/components/Sidebar';
 import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
-import type { RoleConfig, PermissionDef } from '@/lib/roleData';
-import { ALL_PERMISSIONS, PERMISSION_CATEGORIES } from '@/lib/roleData';
+import type { RoleConfig } from '@/lib/roleData';
+import { ALL_PERMISSIONS, PERMISSION_SECTIONS } from '@/lib/roleData';
 
 const ROLE_COLORS: Record<string, { bg: string; fg: string; dot: string }> = {
   super_admin: { bg: '#fef2f2', fg: '#991b1b', dot: '#dc2626' },
+  md: { bg: '#faf5ff', fg: '#6b21a8', dot: '#9333ea' },
   admin: { bg: '#eff6ff', fg: '#1e40af', dot: '#2563eb' },
+  marketing: { bg: '#eff6ff', fg: '#1e3a8a', dot: '#3b82f6' },
+  sales: { bg: '#fff7ed', fg: '#9a3412', dot: '#f97316' },
   client: { bg: '#f0fdf4', fg: '#166534', dot: '#16a34a' },
 };
 
+/** Fallback text only — built-in roles carry their own `description`. */
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   super_admin: 'Full system access. All permissions locked on.',
-  admin: 'Day-to-day management. Most permissions enabled.',
-  client: 'Read-only access to dashboards and reports.',
+  admin: 'Day-to-day management across both projects.',
+  client: 'Read-only access to the BA dashboards and reports.',
 };
 
 export default function RolesPage() {
-  const { session, loading: authLoading, logout } = useAuth('super_admin');
+  const { session, loading: authLoading, logout } = useAuth('system.roles.manage');
   const [roles, setRoles] = useState<RoleConfig[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -112,9 +116,28 @@ export default function RolesPage() {
   }
 
   function handleDeleteRole(roleName: string) {
-    if (roleName === 'super_admin') return;
+    const role = roles.find(r => r.name === roleName);
+    if (roleName === 'super_admin' || role?.builtIn) return;
     if (!confirm(`Delete role "${roleName}"? This cannot be undone.`)) return;
     setRoles(prev => prev.filter(r => r.name !== roleName));
+    setDirty(true);
+  }
+
+  /**
+   * Switch an entire project on or off for a role in one click. This is the
+   * whole point of the section grouping — "Marketing gets everything except
+   * Call Cycles" should be two clicks, not thirty.
+   */
+  function toggleSectionForRole(roleName: string, section: string) {
+    if (roleName === 'super_admin') return;
+    const keys = ALL_PERMISSIONS.filter(p => p.section === section).map(p => p.key);
+    setRoles(prev => prev.map(r => {
+      if (r.name !== roleName) return r;
+      const perms = new Set(r.permissions);
+      const allOn = keys.every(k => perms.has(k));
+      for (const k of keys) { if (allOn) perms.delete(k); else perms.add(k); }
+      return { ...r, permissions: [...perms] };
+    }));
     setDirty(true);
   }
 
@@ -122,10 +145,23 @@ export default function RolesPage() {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>Loading...</div>;
   }
 
-  const permsByCategory: Record<string, PermissionDef[]> = {};
-  for (const cat of PERMISSION_CATEGORIES) {
-    permsByCategory[cat] = ALL_PERMISSIONS.filter(p => p.category === cat);
-  }
+  // Permissions grouped section -> category -> keys, so a whole project can be
+  // toggled above the individual categories.
+  const bySection = PERMISSION_SECTIONS.map(section => {
+    const perms = ALL_PERMISSIONS.filter(p => p.section === section);
+    const categories = [...new Set(perms.map(p => p.category))].map(cat => ({
+      cat,
+      perms: perms.filter(p => p.category === cat),
+    }));
+    return { section, keys: perms.map(p => p.key), categories };
+  });
+
+  const SECTION_TINT: Record<string, string> = {
+    'BA Measurement': '#eff6ff',
+    'Call Cycles': '#fff7ed',
+    'Shared': '#f0fdf4',
+    'System': '#fef2f2',
+  };
 
   return (
     <div style={{ display: 'flex' }}>
@@ -242,64 +278,63 @@ export default function RolesPage() {
                   })}
                 </tr>
               </thead>
-              {PERMISSION_CATEGORIES.map(cat => {
-                const catPerms = permsByCategory[cat];
-                return (
-                  <tbody key={cat}>
-                    {/* Category header row */}
-                    <tr style={{ background: '#f9fafb' }}>
-                      <td style={{
-                        padding: '0.5rem 1rem', fontWeight: 700, fontSize: '0.7rem',
-                        color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em',
-                        borderTop: '1px solid #e5e7eb', background: '#f9fafb',
-                      }}>
-                        {cat}
-                      </td>
-                      {roles.map(r => {
-                        const catKeys = catPerms.map(p => p.key);
-                        const allOn = catKeys.every(k => r.permissions.includes(k));
-                        const someOn = catKeys.some(k => r.permissions.includes(k));
-                        return (
-                          <td key={r.name} style={{
-                            textAlign: 'center', padding: '0.5rem',
-                            borderTop: '1px solid #e5e7eb',
-                          }}>
-                            <input
-                              type="checkbox"
-                              checked={allOn}
-                              ref={el => {
-                                if (el) el.indeterminate = !allOn && someOn;
-                              }}
-                              onChange={() => toggleCategoryForRole(r.name, cat)}
-                              disabled={r.name === 'super_admin'}
-                              style={{
-                                width: 15, height: 15, accentColor: '#e31e1c',
-                                cursor: r.name === 'super_admin' ? 'not-allowed' : 'pointer',
-                                opacity: r.name === 'super_admin' ? 0.5 : 1,
-                              }}
-                            />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {/* Permission rows */}
-                    {catPerms.map(perm => (
-                      <tr key={perm.key} style={{ borderBottom: '1px solid #f3f4f6' }}>
+              {bySection.map(({ section, keys: sectionKeys, categories }) => (
+                <tbody key={section}>
+                  {/* Project header — one click switches a whole project on or off */}
+                  <tr style={{ background: SECTION_TINT[section] || '#f3f4f6' }}>
+                    <td style={{
+                      padding: '0.6rem 1rem', fontWeight: 800, fontSize: '0.78rem',
+                      color: '#111827', borderTop: '2px solid #d1d5db',
+                    }}>
+                      {section}
+                      <span style={{ fontWeight: 500, color: '#6b7280', fontSize: '0.7rem', marginLeft: 8 }}>
+                        {sectionKeys.length} permissions
+                      </span>
+                    </td>
+                    {roles.map(r => {
+                      const allOn = sectionKeys.every(k => r.permissions.includes(k));
+                      const someOn = sectionKeys.some(k => r.permissions.includes(k));
+                      return (
+                        <td key={r.name} style={{ textAlign: 'center', padding: '0.6rem', borderTop: '2px solid #d1d5db' }}>
+                          <input
+                            type="checkbox"
+                            checked={allOn}
+                            ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
+                            onChange={() => toggleSectionForRole(r.name, section)}
+                            disabled={r.name === 'super_admin'}
+                            style={{
+                              width: 17, height: 17, accentColor: '#e31e1c',
+                              cursor: r.name === 'super_admin' ? 'not-allowed' : 'pointer',
+                              opacity: r.name === 'super_admin' ? 0.5 : 1,
+                            }}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {categories.map(({ cat, perms: catPerms }) => (
+                    <Fragment key={cat}>
+                      {/* Category header row */}
+                      <tr style={{ background: '#f9fafb' }}>
                         <td style={{
-                          padding: '0.4rem 1rem 0.4rem 2rem', color: '#374151',
-                          background: 'white',
+                          padding: '0.45rem 1rem 0.45rem 1.75rem', fontWeight: 700, fontSize: '0.7rem',
+                          color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em',
+                          borderTop: '1px solid #e5e7eb', background: '#f9fafb',
                         }}>
-                          <div style={{ fontWeight: 500 }}>{perm.label}</div>
-                          <div style={{ fontSize: '0.65rem', color: '#9ca3af', fontFamily: 'monospace' }}>{perm.key}</div>
+                          {cat}
                         </td>
                         {roles.map(r => {
-                          const has = r.permissions.includes(perm.key);
+                          const catKeys = catPerms.map(p => p.key);
+                          const allOn = catKeys.every(k => r.permissions.includes(k));
+                          const someOn = catKeys.some(k => r.permissions.includes(k));
                           return (
-                            <td key={r.name} style={{ textAlign: 'center', padding: '0.4rem' }}>
+                            <td key={r.name} style={{ textAlign: 'center', padding: '0.45rem', borderTop: '1px solid #e5e7eb' }}>
                               <input
                                 type="checkbox"
-                                checked={has}
-                                onChange={() => togglePermission(r.name, perm.key)}
+                                checked={allOn}
+                                ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
+                                onChange={() => toggleCategoryForRole(r.name, cat)}
                                 disabled={r.name === 'super_admin'}
                                 style={{
                                   width: 15, height: 15, accentColor: '#e31e1c',
@@ -311,10 +346,35 @@ export default function RolesPage() {
                           );
                         })}
                       </tr>
-                    ))}
-                  </tbody>
-                );
-              })}
+
+                      {/* Permission rows */}
+                      {catPerms.map(perm => (
+                        <tr key={perm.key} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '0.4rem 1rem 0.4rem 2.75rem', color: '#374151', background: 'white' }}>
+                            <div style={{ fontWeight: 500 }}>{perm.label}</div>
+                            <div style={{ fontSize: '0.65rem', color: '#9ca3af', fontFamily: 'monospace' }}>{perm.key}</div>
+                          </td>
+                          {roles.map(r => (
+                            <td key={r.name} style={{ textAlign: 'center', padding: '0.4rem' }}>
+                              <input
+                                type="checkbox"
+                                checked={r.permissions.includes(perm.key)}
+                                onChange={() => togglePermission(r.name, perm.key)}
+                                disabled={r.name === 'super_admin'}
+                                style={{
+                                  width: 15, height: 15, accentColor: '#e31e1c',
+                                  cursor: r.name === 'super_admin' ? 'not-allowed' : 'pointer',
+                                  opacity: r.name === 'super_admin' ? 0.5 : 1,
+                                }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              ))}
             </table>
           </div>
         </div>
@@ -323,7 +383,7 @@ export default function RolesPage() {
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1rem' }}>
           {roles.map(r => {
             const colors = ROLE_COLORS[r.name] || { bg: '#f3f4f6', fg: '#374151', dot: '#6b7280' };
-            const desc = ROLE_DESCRIPTIONS[r.name] || '';
+            const desc = r.description || ROLE_DESCRIPTIONS[r.name] || '';
             return (
               <div key={r.name} style={{
                 flex: '1 1 200px', padding: '0.75rem 1rem', borderRadius: 8,

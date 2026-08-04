@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadChannels, Channel } from '@/lib/channelData';
 import { loadStores, StoreMaster, buildCodeToSalesName } from '@/lib/storeData';
 import { loadProducts, ProductMaster } from '@/lib/productData';
 import { loadDispoData, calcSalesValue, DispoSalesData, DispoUploadMeta } from '@/lib/dispoData';
-import { loadVisitIndex, loadVisitData, Visit } from '@/lib/visitData';
+import { loadVisitIndex, loadVisitData, Visit, filterVisitsByProject } from '@/lib/visitData';
 import { loadDisplayIndex, loadDisplayData, DisplayRecord } from '@/lib/displayData';
 import { loadWeekMapping, getWeekNumber, type WeekMappingYear } from '@/lib/weekMapping';
 import { readJson } from '@/lib/blob';
@@ -251,7 +251,7 @@ async function buildWeeklyData(
 /* ── Main handler ── */
 
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.reports.view');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const year = new Date().getFullYear();
@@ -270,7 +270,7 @@ export async function GET(req: NextRequest) {
   // Load all visits
   const allVisits: Visit[] = [];
   for (const meta of visitIndex) {
-    const v = await loadVisitData(meta.id);
+    const v = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
     allVisits.push(...v);
   }
 

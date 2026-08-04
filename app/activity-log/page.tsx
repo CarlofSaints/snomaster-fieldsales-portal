@@ -64,7 +64,7 @@ function monthOptions(): string[] {
 }
 
 export default function ActivityLogPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('shared.activity_log.view');
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);

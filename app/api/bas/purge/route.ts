@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadScores, saveScores } from '@/lib/scoreData';
 import { loadVisitIndex, loadVisitData, saveVisitData } from '@/lib/visitData';
 import {
@@ -25,7 +26,7 @@ export const maxDuration = 60;
  * Does NOT touch the users table — BAs are not necessarily system users.
  */
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin']);
+  const user = await requirePermission(req, 'ba.bas.manage');
   if (!user) return NextResponse.json({ error: 'Unauthorized — super_admin only' }, { status: 401 });
 
   try {

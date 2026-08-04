@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadTrainingIndex, loadTrainingFormData } from '@/lib/trainingData';
 import type { TrainingFormRow } from '@/lib/trainingData';
 import { logFromUser } from '@/lib/activityLog';
@@ -12,7 +13,7 @@ export const maxDuration = 60;
  * Returns merged raw form data from all training uploads for the given month.
  */
 export async function GET(req: NextRequest) {
-  const user = await requireRole(req, ['admin', 'super_admin']);
+  const user = await requirePermission(req, 'ba.kpi.training');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const url = new URL(req.url);

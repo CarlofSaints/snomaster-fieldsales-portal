@@ -66,7 +66,7 @@ function needsLink(s: StoreMaster): boolean {
 }
 
 export default function StoresPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('shared.stores.view');
   const [stores, setStores] = useState<StoreMaster[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [bas, setBas] = useState<BAOption[]>([]);

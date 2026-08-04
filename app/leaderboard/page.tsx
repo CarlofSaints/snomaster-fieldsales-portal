@@ -72,7 +72,7 @@ function scoreBarColor(total: number): string {
 type SortKey = 'total' | 'repName' | 'storeName' | 'monthlySales' | 'checkInOnTime' | 'displayInspection' | 'training' | 'weeklySummaries' | 'bonusSuggestions' | 'salesVol' | 'salesVal';
 
 export default function LeaderboardPage() {
-  const { session, loading: authLoading, logout } = useAuth();
+  const { session, loading: authLoading, logout } = useAuth('ba.leaderboard.view');
   const router = useRouter();
   const [data, setData] = useState<LeaderboardEntry[]>([]);
   const [loadingData, setLoadingData] = useState(true);

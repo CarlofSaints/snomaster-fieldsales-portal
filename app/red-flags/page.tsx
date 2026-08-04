@@ -262,7 +262,7 @@ const TYPE_KEYS = [
 /* ── Main Page ── */
 
 export default function RedFlagsPage() {
-  const { session, loading: authLoading, logout } = useAuth(['admin', 'super_admin', 'client']);
+  const { session, loading: authLoading, logout } = useAuth('ba.kpi.red_flags');
   const [month, setMonth] = useState(currentMonth());
 
   const [summaryData, setSummaryData] = useState<RedFlagSummary | null>(null);

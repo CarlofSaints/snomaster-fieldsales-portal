@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAnyUser, noCacheHeaders } from '@/lib/auth';
-import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
+import { loadVisitIndex, loadVisitData, filterVisitsByProject } from '@/lib/visitData';
 import { loadScoringConfig } from '@/lib/scoringConfig';
 import { loadTargetData, getStoreTarget } from '@/lib/targetData';
 import { loadDispoData, calcSalesValue } from '@/lib/dispoData';
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
     // ── Check-in stats ──
     const allVisits = [];
     for (const meta of visitIndex) {
-      const visits = await loadVisitData(meta.id);
+      const visits = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
       allVisits.push(...visits);
     }
     const monthVisits = allVisits.filter(

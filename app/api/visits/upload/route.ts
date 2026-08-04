@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole, noCacheHeaders } from '@/lib/auth';
+import { noCacheHeaders } from '@/lib/auth';
+import { requirePermission } from '@/lib/permissions';
 import { loadVisitIndex, saveVisitIndex, saveVisitData, Visit } from '@/lib/visitData';
 import { syncVisitedStores } from '@/lib/storeData';
 import { logFromUser } from '@/lib/activityLog';
@@ -155,7 +156,7 @@ function parseExcelRows(buffer: Buffer, fileName: string): ParseResult {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireRole(req, ['super_admin', 'admin']);
+  const user = await requirePermission(req, 'ba.upload.visits');
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

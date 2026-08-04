@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAnyUser, noCacheHeaders } from '@/lib/auth';
 import { loadScores, calcTotal, calcGrandTotal, BAScore } from '@/lib/scoreData';
-import { loadVisitIndex, loadVisitData } from '@/lib/visitData';
+import { loadVisitIndex, loadVisitData, filterVisitsByProject } from '@/lib/visitData';
 import { loadDispoData } from '@/lib/dispoData';
 import { loadStores, buildCodeToSalesName, storeSalesKey, normalizeCode } from '@/lib/storeData';
 import { loadHirschData } from '@/lib/hirschData';
@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
     const storeCountsByMonth = new Map<string, Map<string, Map<string, number>>>();
     const codeByStoreName = new Map<string, string>();
     for (const meta of visitIndex) {
-      const visits = await loadVisitData(meta.id);
+      const visits = filterVisitsByProject(await loadVisitData(meta.id), 'ba');
       for (const v of visits) {
         if (!v.email || !v.storeName) continue;
         const emailKey = v.email.toLowerCase();

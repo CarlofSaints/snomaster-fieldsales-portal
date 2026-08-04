@@ -1,5 +1,41 @@
 # SnoMaster Field Sales Portal — Current State
 
+## ⚠ THIS PORTAL HOSTS TWO SEPARATE BUSINESSES
+
+Read this before changing anything that touches visits, roles or Perigee.
+
+| | **BA Measurement** | **Call Cycles** |
+|---|---|---|
+| People | 3rd-party brand ambassadors | SnoMaster's own internal reps |
+| Department | Marketing | Sales |
+| Permission prefix | `ba.*` | `cc.*` |
+| Perigee token project | `ba` | `reps` |
+
+Both sets of people live in the same Perigee account, and **their data must never
+mix** — different managers, different departments, different scoring. The split
+is enforced in three places:
+
+1. **Permissions** are namespaced by project so a whole side can be switched off
+   for a role in one click (`lib/roleData.ts`, sectioned catalogue).
+2. **Every Perigee token carries a `project`** (`lib/perigee.ts`). Visits are
+   stamped with the project of the token they arrived on and keep it forever.
+3. **Readers filter by project.** `loadAllVisits('ba' | 'reps')` is the safe
+   entry point; BA scoring paths call `filterVisitsByProject(..., 'ba')`.
+   ⚠ A new visit reader that forgets this will silently put internal reps on the
+   BA leaderboard, which is the exact failure this design exists to prevent.
+
+Shared on purpose: the **store master** (a store is the same shop whoever visits
+it) and the **Activity Log**. `system.*` permissions are portal administration.
+
+### Permissions are REAL now (2026-08-04)
+They used to be decorative — the Roles page wrote them and nothing read them.
+Now: `lib/permissions.ts` `requirePermission()` guards ~90 API routes, `useAuth('perm.key')`
+guards every page, and the Sidebar filters on permissions. `Role` is a plain
+`string` (roles are data in `config/roles.json`), and `/api/me` re-resolves
+permissions on each page load so role edits apply without re-login.
+Built-in roles: `super_admin`, `md`, `admin`, `marketing`, `sales`, `client`.
+`loadRoles()` migrates legacy permission keys — see `LEGACY_KEY_MAP`.
+
 ## Project Location
 `C:\Users\CarlDosSantos-(OUTER\Projects\snomaster-fieldsales-portal`
 GitHub: [snomaster-fieldsales-portal](https://github.com/CarlofSaints/snomaster-fieldsales-portal)

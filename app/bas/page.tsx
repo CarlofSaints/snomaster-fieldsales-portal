@@ -18,7 +18,7 @@ interface BA {
 }
 
 export default function BAsPage() {
-  const { session, loading: authLoading, logout } = useAuth(['super_admin', 'admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.bas.view');
   const [bas, setBas] = useState<BA[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');

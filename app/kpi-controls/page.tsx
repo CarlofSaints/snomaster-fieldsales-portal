@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
 
 export default function KPIControlsPage() {
-  const { session, loading: authLoading, logout } = useAuth(['admin', 'super_admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.kpi_controls.view');
   const [minTrainings, setMinTrainings] = useState(4);
   const [minVisits, setMinVisits] = useState(20);
   const [salesThreshold, setSalesThreshold] = useState(80);

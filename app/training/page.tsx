@@ -190,7 +190,7 @@ const NAME_COL_W = 180;
 /* ── Main Page ── */
 
 export default function TrainingPage() {
-  const { session, loading: authLoading, logout } = useAuth(['admin', 'super_admin']);
+  const { session, loading: authLoading, logout } = useAuth('ba.kpi.training');
   const [month, setMonth] = useState(currentMonth());
 
   const [summaryData, setSummaryData] = useState<TrainingSummary | null>(null);
