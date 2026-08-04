@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth, authFetch } from '@/lib/useAuth';
+import { uploadStoreControl, type StoreControlProgress } from '@/lib/callcycle/uploadStoreControl';
 import Sidebar from '@/components/Sidebar';
 import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
@@ -42,6 +43,7 @@ export default function ControlFilesPage() {
   const [storeMode, setStoreMode] = useState<Mode>('replace');
   const [teamMode, setTeamMode] = useState<Mode>('replace');
   const [busy, setBusy] = useState<'store' | 'team' | null>(null);
+  const [progress, setProgress] = useState<StoreControlProgress | null>(null);
 
   const storeInput = useRef<HTMLInputElement>(null);
   const teamInput = useRef<HTMLInputElement>(null);
@@ -64,30 +66,38 @@ export default function ControlFilesPage() {
 
   async function upload(kind: 'store' | 'team', file: File) {
     setBusy(kind);
+    setProgress(null);
     try {
+      // The store export blows past the ~4.5 MB serverless body limit, so it is
+      // parsed here in the browser and streamed up gzipped and chunked. The team
+      // file is small, so it still posts as a plain upload.
+      if (kind === 'store') {
+        const result = await uploadStoreControl(file, storeMode, setProgress);
+        if (result.ok) {
+          setToast({ msg: `Store control loaded — ${result.totalStores?.toLocaleString()} stores (${result.activeStores?.toLocaleString()} active)`, type: 'success' });
+          load();
+        } else {
+          setToast({ msg: result.error || 'Upload failed', type: 'error' });
+        }
+        return;
+      }
+
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('mode', kind === 'store' ? storeMode : teamMode);
-      const url = kind === 'store'
-        ? '/api/call-cycles/control-files/stores'
-        : '/api/call-cycles/control-files/teams';
-      const res = await authFetch(url, { method: 'POST', body: fd });
+      fd.append('mode', teamMode);
+      const res = await authFetch('/api/call-cycles/control-files/teams', { method: 'POST', body: fd });
       const data = await res.json();
       if (res.ok) {
-        setToast({
-          msg: kind === 'store'
-            ? `Store control loaded — ${data.totalStores} stores (${data.activeStores} active)`
-            : `Team control loaded — ${data.totalMembers} members, ${data.withUserId} with a Perigee USER ID`,
-          type: 'success',
-        });
+        setToast({ msg: `Team control loaded — ${data.totalMembers} members, ${data.withUserId} with a Perigee USER ID`, type: 'success' });
         load();
       } else {
         setToast({ msg: data.error || 'Upload failed', type: 'error' });
       }
-    } catch {
-      setToast({ msg: 'Upload failed', type: 'error' });
+    } catch (err) {
+      setToast({ msg: err instanceof Error ? err.message : 'Upload failed', type: 'error' });
     } finally {
       setBusy(null);
+      setProgress(null);
       if (kind === 'store' && storeInput.current) storeInput.current.value = '';
       if (kind === 'team' && teamInput.current) teamInput.current.value = '';
     }
@@ -159,7 +169,9 @@ export default function ControlFilesPage() {
               <p style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: 4 }}>
                 Every site Perigee knows, with its code and channel. Needs at minimum a{' '}
                 <strong>STORE CODE</strong> and <strong>STORE NAME</strong> column; CHANNEL, ACTIVE,
-                PROVINCE and the rest are read when present.
+                PROVINCE and the rest are read when present. <strong>Any size is fine</strong> — the
+                file is parsed in your browser and streamed up in pieces, so it never hits the
+                server&apos;s upload limit.
               </p>
             </div>
             <div style={{
@@ -194,6 +206,18 @@ export default function ControlFilesPage() {
             <button className="btn btn-primary" onClick={() => storeInput.current?.click()} disabled={busy === 'store'} style={{ fontSize: '0.8rem' }}>
               {busy === 'store' ? 'Uploading…' : 'Upload store control'}
             </button>
+            {busy === 'store' && progress && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.76rem', color: '#6b7280' }}>
+                <span style={{ display: 'inline-block', width: 120, height: 6, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
+                  <span style={{
+                    display: 'block', height: '100%', background: '#e31e1c', borderRadius: 3,
+                    width: progress.percent === null ? '30%' : `${progress.percent}%`,
+                    transition: 'width 0.2s',
+                  }} />
+                </span>
+                {progress.detail}
+              </span>
+            )}
             <a href="/api/call-cycles/templates?type=store" className="btn btn-outline" style={{ fontSize: '0.8rem', textDecoration: 'none' }}>Template</a>
             {storeStatus?.loaded && (
               <button className="btn btn-outline" onClick={() => clearFile('store')} style={{ fontSize: '0.8rem', color: '#dc2626' }}>Clear</button>

@@ -276,8 +276,8 @@ export default function CallCyclesPage() {
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
           {canEdit && (
             <>
-              <Link href="/call-cycles/upload" className="btn btn-primary" style={{ fontSize: '0.82rem', textDecoration: 'none' }}>
-                Upload call cycle file
+              <Link href="/call-cycles/planner" className="btn btn-primary" style={{ fontSize: '0.82rem', textDecoration: 'none' }}>
+                Upload monthly planner
               </Link>
               <button className="btn btn-accent" onClick={handleDownload} disabled={downloading || schedule.length === 0} style={{ fontSize: '0.82rem' }}>
                 {downloading ? 'Building…' : 'Download Perigee file'}

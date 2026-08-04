@@ -26,7 +26,8 @@ const KPI_ITEMS: NavItem[] = [
 
 const CALL_CYCLE_ITEMS: NavItem[] = [
   { label: 'Schedule', href: '/call-cycles', icon: '🗓️', roles: ['super_admin', 'admin', 'client'] },
-  { label: 'Upload Cycle File', href: '/call-cycles/upload', icon: '📥', roles: ['super_admin', 'admin'] },
+  { label: 'Upload Planner', href: '/call-cycles/planner', icon: '📥', roles: ['super_admin', 'admin'] },
+  { label: 'Upload (other formats)', href: '/call-cycles/upload', icon: '📄', roles: ['super_admin', 'admin'] },
   { label: 'Adherence', href: '/call-cycles/adherence', icon: '🎯', roles: ['super_admin', 'admin', 'client'] },
   { label: 'Control Files', href: '/call-cycles/control-files', icon: '🗂️', roles: ['super_admin', 'admin'] },
 ];

@@ -127,15 +127,87 @@ Reuses the Perigee visit history already in SnoMaster. Expected dates are genera
 Visit store codes are folded onto the store master's **primary** Perigee code first, so a visit logged
 under an alias code still counts.
 
+## SnoMaster monthly planner format (2026-08-04)
+
+The SnoMaster reps do NOT use anything resembling the iRAM formats. Their file is a **monthly
+colour-coded calendar**, one rep per file, re-sent every month:
+
+```
+ STORE CODE |    | <title>       | WEEKENDS ... <- legend block: label + FILL COLOUR
+            |    |               | LEAVE / OFFICE DAY / PLANNING / VISITED / ...
+            |    | SNOMASTER ... | SAT SUN MON TUE ...   <- weekday row
+            |    | DATE          |  1   2   3   4  ...   <- day-of-month row
+ REGION (1) |    |               |
+            |  1 | Makro Carnival|         ##            <- shaded = in store on the 3rd
+```
+
+`lib/callcycle/parsers/snomasterPlanner.ts`. Anchor is a cell reading **`DATE`** followed by
+1, 2, 3 — that held on all 7 real sheets even though the store-name column sits in B, C **or** D and
+the header block is 7, 9 or 10 rows deep.
+
+**Key insight:** the Nth occurrence of a weekday in a month is *always* `ceil(day / 7)`, because the
+first occurrence necessarily falls on day 1-7. So "shaded Mon 3 and Mon 17" is exactly Perigee's
+"Week 1&3, Monday" — no calendar maths needed beyond the division.
+
+⚠ **Days stay attached to their own week** (`DerivedStoreCycle.perWeek`). A store is often visited on
+a *different weekday each week* (one real file: Wed wk1, Thu wk2, Mon wk3, Tue wk4). Collapsing that
+to "weeks 1-4 × Mon,Tue,Wed,Thu" claims 16 visits instead of 4. `cycleToEntryGroups()` emits one
+schedule row per distinct day-pattern, which lands in Perigee's per-week WEEK1..WEEK6 columns.
+
+### Why the colour key is read from the sheet, never hardcoded
+Every rep's legend differs, and **the same label uses different colours in different files**
+(`VISITED` is `FFFFC000`, `T5/0.000` and `FFFF99CC`). Worse, real files disagree with their own key:
+- JOHN's legend says PLANNING = `T0/-0.250`; his grid uses `T0/-0.350`. Exact matching read **zero**
+  visits. Hence `fillsMatch()` allows ±0.15 tint drift within the same theme.
+- JOSHUA has 47 cells of `T2/-0.250` in no legend row at all.
+- LISA deleted her WEEKENDS legend row but kept 860 cells of the shading.
+- RUBEN-LEON's August grid has **only** weekend shading — genuinely no visits planned.
+
+So the upload is **two-step**: `/api/call-cycles/planner/analyse` reports every colour actually used
+(flagging ones absent from the legend), and the user ticks which mean "in store" before
+`/api/call-cycles/planner/commit` writes anything. **A typed `1` in the cell also counts**, always,
+whatever the colour — that is the format we want reps to move to, since fills do not survive
+re-theming or copy-paste.
+
+`BA IN STORE` / `AMBASSEDOR IN STORES` are explicitly excluded (Carl: different activity, never a
+call cycle row).
+
+### Fail-closed month validation
+`lib/callcycle/parsers/plannerValidation.ts`. A planner states its month in three places — sheet
+name, title cell, and the grid's own weekday/day-count alignment — and they disagree in real files.
+LISA's is named "STORE VISITSAUGUST 2026" over a title reading "JULY 2026 STORE VISIT PLANNER". Any
+disagreement **blocks the whole upload**; nothing is saved and the user fixes the file. The grid is
+ground truth: only one month has both a given day-count and a given starting weekday.
+
+### Store matching
+`lib/callcycle/storeMatcher.ts`. The planners carry **no store codes** (the column exists, always
+empty) and names are freehand: `Chamnerlains Riviera`, `Makro Carnivile`, `Strunenvalley`,
+`CHECEKRS OUTDOOR`. Levenshtein + token overlap, returning exact/high/low/none. High confidence
+needs a clear win over second place — "Makro Centurion" vs "Hirsch Centurion" score alike on the
+suburb, and guessing there is the failure worth avoiding. Only exact/high auto-fill; the rest wait
+for a human.
+
+### Monthly semantics
+Committing a planner **replaces** everything held for that rep. Merging would accumulate last
+month's stores forever and a dropped store would never disappear.
+
+## Store control upload is chunked, not a plain POST
+
+`lib/callcycle/uploadStoreControl.ts`. The Perigee store export (6.5 MB) is far past the **~4.5 MB
+serverless request body limit** — a platform limit, not a plan quota, so Pro does not help. The
+browser parses the workbook, keeps only the columns `processStoreRows` reads, gzips, and sends it in
+5000-row chunks. Chunks are staged under `callcycle/staging/store-control/<uploadId>/<n>.json` and
+combined on the final chunk, so a failed upload never half-overwrites the live file.
+(The iRAM build never solved this — its UI just shows "trim your file" on a 413.)
+
 ### Status
-- **Build + typecheck clean.** Parser path smoke-tested end to end against a synthetic 4-week
-  workbook: sheet-name email carried through, both code formats extracted, name de-duplicated,
-  4 week blocks folded to `Week 1&2&3&4`, and a duplicate code across MAKRO/HIRSCH'S resolved to the
-  right channel by name.
-- **NOT yet run against a real SnoMaster file** — the SnoMaster-specific formats are the next job.
-  Add a new parser under `lib/callcycle/parsers/` and a new `ParseMode`; do NOT bend the existing
-  iRAM parsers, they are proven against iRAM's files.
-- **NOT yet runtime-tested against live Blob or a real Perigee upload.**
+- **Build + typecheck clean.**
+- **Verified against all six real planners**: 102 store cycles round-trip from the planner grid into
+  the Perigee WEEK1..WEEK6 columns with zero mismatches; marked-day count equals the count implied
+  by the generated rows on every file; LISA's file is correctly blocked by validation.
+- The iRAM parsers were separately smoke-tested against a synthetic 4-week workbook.
+- **NOT yet runtime-tested against live Blob, a real Perigee store control file, or a real Perigee
+  upload.** JOSHUA's unlabelled colour and RUBEN-LEON's empty grid both need Carl to confirm intent.
 
 ## Outstanding To Go Live
 1. Get the **SnoMaster Perigee API token** (for visits) — set in env / Perigee config page.
