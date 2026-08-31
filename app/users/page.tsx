@@ -7,6 +7,7 @@ import Sidebar from '@/components/Sidebar';
 import Toast from '@/components/Toast';
 import Footer from '@/components/Footer';
 import PasswordInput from '@/components/PasswordInput';
+import { INACTIVE_MESSAGE } from '@/lib/accountStatus';
 
 interface UserRow {
   id: string;
@@ -15,6 +16,8 @@ interface UserRow {
   surname: string;
   cellNumber?: string;
   role: Role;
+  /** Absent means active — see lib/accountStatus.ts. */
+  active?: boolean;
   forcePasswordChange: boolean;
   createdAt: string;
 }
@@ -141,6 +144,48 @@ export default function UsersPage() {
     }
   }
 
+  /**
+   * Switch sign-in on or off. This is deliberately NOT delete: the record, the
+   * role and every score, visit and training row the person owns stay exactly
+   * as they are, and reactivating restores access with their existing password.
+   */
+  async function toggleActive(u: UserRow) {
+    const deactivating = u.active !== false;
+    const who = `${u.name} ${u.surname}`;
+    const ok = confirm(
+      deactivating
+        ? `Deactivate ${who}?
+
+They keep everything — role, scores, visits, training and history all stay exactly as they are. They simply cannot sign in, and any session they still have open stops working.
+
+You can reactivate them at any time.`
+        : `Reactivate ${who}?
+
+They will be able to sign in again with their existing password.`,
+    );
+    if (!ok) return;
+
+    try {
+      const res = await authFetch(`/api/users/${u.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !deactivating }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ msg: data.error || (deactivating ? 'Deactivate failed' : 'Reactivate failed'), type: 'error' });
+        return;
+      }
+      setToast({
+        msg: deactivating ? `${who} deactivated — they can no longer sign in` : `${who} reactivated`,
+        type: 'success',
+      });
+      loadUsers();
+    } catch {
+      setToast({ msg: deactivating ? 'Deactivate failed' : 'Reactivate failed', type: 'error' });
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!confirm('Delete this user?')) return;
     try {
@@ -213,6 +258,34 @@ export default function UsersPage() {
           <button className="btn btn-primary" onClick={openCreate}>+ Add User</button>
         </div>
 
+        {/* So an admin can see exactly what a locked-out user is being told. */}
+        {users.some(u => u.active === false) && (
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.6rem',
+              alignItems: 'flex-start',
+              background: '#fff7f7',
+              border: '1px solid #fecaca',
+              borderLeft: '4px solid #e31e1c',
+              borderRadius: 8,
+              padding: '0.75rem 1rem',
+              marginBottom: '1rem',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e31e1c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <div style={{ fontSize: '0.78rem', color: '#7f1d1d', lineHeight: 1.5 }}>
+              <strong>{users.filter(u => u.active === false).length} deactivated account{users.filter(u => u.active === false).length === 1 ? '' : 's'}.</strong>{' '}
+              Their data is untouched, they simply cannot sign in. On the login screen they see:
+              <em style={{ display: 'block', marginTop: 2 }}>&ldquo;{INACTIVE_MESSAGE}&rdquo;</em>
+            </div>
+          </div>
+        )}
+
         <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid #e5e7eb' }}>
           <table className="data-table">
             <thead>
@@ -221,17 +294,35 @@ export default function UsersPage() {
                 <th>Email</th>
                 <th>Cell</th>
                 <th>Role</th>
+                <th>Status</th>
                 <th>Created</th>
-                <th style={{ width: 180 }}>Actions</th>
+                <th style={{ width: 260 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id}>
+                <tr key={u.id} style={u.active === false ? { background: '#fff7f7' } : undefined}>
                   <td>{u.name} {u.surname}</td>
                   <td>{u.email}</td>
                   <td>{u.cellNumber || '-'}</td>
                   <td style={{ textTransform: 'capitalize' }}>{u.role.replace('_', ' ')}</td>
+                  <td>
+                    {/* An account with no flag at all is active, and says so. */}
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '0.12rem 0.55rem',
+                        borderRadius: 999,
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        ...(u.active === false
+                          ? { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }
+                          : { background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }),
+                      }}
+                    >
+                      {u.active === false ? 'Inactive' : 'Active'}
+                    </span>
+                  </td>
                   <td>{new Date(u.createdAt).toLocaleDateString('en-ZA')}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -247,6 +338,24 @@ export default function UsersPage() {
                         </svg>
                       </button>
                       <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => openEdit(u)}>Edit</button>
+                      {u.id !== session.id && (
+                        <button
+                          className="btn btn-outline"
+                          style={{
+                            padding: '0.2rem 0.5rem',
+                            fontSize: '0.75rem',
+                            ...(u.active === false
+                              ? { color: '#047857', borderColor: '#6ee7b7' }
+                              : { color: '#b45309', borderColor: '#fcd34d' }),
+                          }}
+                          onClick={() => toggleActive(u)}
+                          title={u.active === false
+                            ? 'Allow this user to sign in again'
+                            : 'Block sign-in but keep the account and all of their data'}
+                        >
+                          {u.active === false ? 'Reactivate' : 'Deactivate'}
+                        </button>
+                      )}
                       <button className="btn btn-danger" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleDelete(u.id)}>Delete</button>
                       {session.role === 'super_admin' && (
                         <button
@@ -263,7 +372,7 @@ export default function UsersPage() {
                 </tr>
               ))}
               {users.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem' }}>No users</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem' }}>No users</td></tr>
               )}
             </tbody>
           </table>

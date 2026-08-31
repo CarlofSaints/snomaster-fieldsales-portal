@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { noCacheHeaders } from '@/lib/auth';
 import { requirePermission } from '@/lib/permissions';
 import { loadUsers, saveUsers } from '@/lib/userData';
+import { isActive } from '@/lib/accountStatus';
 import { sendEmail, welcomeEmailHtml, WELCOME_SUBJECT } from '@/lib/email';
 import bcrypt from 'bcryptjs';
 
@@ -21,6 +22,12 @@ export async function POST(req: NextRequest) {
     const idx = users.findIndex(u => u.id === userId);
     if (idx < 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Resetting their password to email it would be pointless and confusing
+    // while sign-in is blocked.
+    if (!isActive(users[idx])) {
+      return NextResponse.json({ error: 'This user is deactivated. Reactivate them before sending credentials.' }, { status: 400 });
     }
 
     // Generate random temp password

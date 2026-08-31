@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { loadUsers } from '@/lib/userData';
+import { isActive, INACTIVE_MESSAGE } from '@/lib/accountStatus';
 import { noCacheHeaders } from '@/lib/auth';
 import { getUserPermissions } from '@/lib/permissions';
 import { logActivity } from '@/lib/activityLog';
@@ -23,6 +24,13 @@ export async function POST(req: NextRequest) {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    // Checked AFTER the password on purpose: someone guessing at addresses must
+    // not be able to learn which accounts exist by the wording of the refusal.
+    if (!isActive(user)) {
+      logActivity('user_login_blocked', user.email, `${user.name} ${user.surname}`, 'auth', `${user.name} ${user.surname} was refused login — account deactivated`).catch(() => {});
+      return NextResponse.json({ error: INACTIVE_MESSAGE, inactive: true }, { status: 403, headers: noCacheHeaders() });
     }
 
     const session = {

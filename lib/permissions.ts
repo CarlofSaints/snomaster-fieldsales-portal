@@ -1,5 +1,6 @@
 import { loadUsers, type User } from './userData';
 import { loadRoles, permissionsForRole } from './roleData';
+import { isActive } from './accountStatus';
 
 /**
  * Server-side permission enforcement.
@@ -23,7 +24,10 @@ async function userFromRequest(req: Request): Promise<User | null> {
   const userId = req.headers.get('x-user-id');
   if (!userId) return null;
   const users = await loadUsers();
-  return users.find(u => u.id === userId) ?? null;
+  const user = users.find(u => u.id === userId) ?? null;
+  // A deactivated account holds no permissions, which turns off every route
+  // guarded here in one move.
+  return isActive(user) ? user : null;
 }
 
 /**

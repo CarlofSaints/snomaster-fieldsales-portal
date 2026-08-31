@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PasswordInput from '@/components/PasswordInput';
+import { INACTIVE_MESSAGE } from '@/lib/accountStatus';
 
 const SESSION_KEY = 'snomaster_session';
 
@@ -10,6 +11,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Shown when this account is deactivated, either because they just tried to
+  // sign in or because they were switched off with a tab still open (useAuth
+  // sends them here with ?inactive=1).
+  const [inactive, setInactive] = useState(false);
+
+  useEffect(() => {
+    // Read from the URL directly rather than useSearchParams, which would need
+    // a Suspense boundary around this page.
+    if (new URLSearchParams(window.location.search).get('inactive') === '1') {
+      setInactive(true);
+    }
+  }, []);
 
   // Forgot password state
   const [showForgot, setShowForgot] = useState(false);
@@ -38,6 +51,7 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setInactive(false);
     setLoading(true);
 
     try {
@@ -49,7 +63,12 @@ export default function LoginPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Login failed');
+        if (data.inactive) {
+          setInactive(true);
+          setError('');
+        } else {
+          setError(data.error || 'Login failed');
+        }
         setLoading(false);
         return;
       }
@@ -116,6 +135,37 @@ export default function LoginPage() {
             Sign in to your account
           </p>
         </div>
+
+        {inactive && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              gap: '0.6rem',
+              alignItems: 'flex-start',
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderLeft: '4px solid #e31e1c',
+              borderRadius: 8,
+              padding: '0.85rem 1rem',
+              marginBottom: '1.5rem',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e31e1c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.82rem', color: '#991b1b', marginBottom: 3 }}>
+                Account unavailable
+              </div>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#7f1d1d', lineHeight: 1.5 }}>
+                {INACTIVE_MESSAGE}
+              </p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '1rem' }}>

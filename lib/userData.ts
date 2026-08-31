@@ -21,6 +21,11 @@ export interface User {
   cellNumber?: string;
   passwordHash: string;
   role: Role;
+  /**
+   * Can this account sign in? Absent means yes — see lib/accountStatus.ts.
+   * Deactivating leaves every other field, and all of the user's data, intact.
+   */
+  active?: boolean;
   forcePasswordChange: boolean;
   createdAt: string;
   resetToken?: string;

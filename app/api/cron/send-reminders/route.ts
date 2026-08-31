@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { loadReminders, saveReminders, computeNextDue } from '@/lib/reminderData';
 import { loadUsers } from '@/lib/userData';
+import { isActive } from '@/lib/accountStatus';
 import { sendEmail } from '@/lib/email';
 import { logActivity } from '@/lib/activityLog';
 
@@ -39,8 +40,14 @@ export async function GET(req: NextRequest) {
       if (dueAt > now) continue;
 
       // Resolve user IDs to emails
+      // A deactivated user keeps their place on the reminder's recipient list
+      // (nothing is removed) but stops being emailed while switched off.
       const resolveEmails = (ids: string[]): string[] =>
-        ids.map(id => users.find(u => u.id === id)?.email).filter((e): e is string => !!e);
+        ids
+          .map(id => users.find(u => u.id === id))
+          .filter(u => isActive(u))
+          .map(u => u!.email)
+          .filter((e): e is string => !!e);
 
       const toEmails = resolveEmails(reminder.to);
       const ccEmails = resolveEmails(reminder.cc);

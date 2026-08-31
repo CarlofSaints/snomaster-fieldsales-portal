@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       cellNumber: cellNumber || undefined,
       passwordHash: await bcrypt.hash(tempPassword, 10),
       role,
+      active: true,
       forcePasswordChange: forcePasswordChange !== false,
       createdAt: new Date().toISOString(),
     };

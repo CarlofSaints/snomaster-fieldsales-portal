@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { loadUsers, saveUsers } from '@/lib/userData';
+import { isActive } from '@/lib/accountStatus';
 import { sendEmail } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,12 @@ export async function POST(req: NextRequest) {
 
     // Always return success to avoid leaking whether email exists
     if (idx === -1) {
+      return NextResponse.json({ ok: true });
+    }
+
+    // A deactivated account gets no reset link. Same silent success, so this
+    // does not become a way to test whether an account is switched off.
+    if (!isActive(users[idx])) {
       return NextResponse.json({ ok: true });
     }
 

@@ -6,6 +6,7 @@ export type ActivityAction =
   | 'delete_visits' | 'delete_dispo' | 'delete_hirsch' | 'delete_training' | 'delete_targets' | 'delete_display' | 'delete_red_flags'
   | 'cron_import'
   | 'user_create' | 'user_edit' | 'user_delete' | 'user_purge' | 'rep_exclude'
+  | 'user_deactivate' | 'user_reactivate' | 'user_login_blocked'
   | 'scores_save'
   | 'reminder_create' | 'reminder_edit' | 'reminder_delete' | 'reminder_sent'
   | 'callcycle_upload' | 'callcycle_edit' | 'callcycle_delete' | 'callcycle_clear'

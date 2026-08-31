@@ -43,14 +43,40 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (body.email) users[idx].email = body.email;
   if (body.role) users[idx].role = body.role;
   if (body.cellNumber !== undefined) users[idx].cellNumber = body.cellNumber || undefined;
+
+  // Activation. Nothing else about the record is touched, which is the whole
+  // point: the user keeps their role, their password and all of their data.
+  let activeChangedTo: boolean | null = null;
+  if (typeof body.active === 'boolean') {
+    if (id === user.id && body.active === false) {
+      return NextResponse.json({ error: 'You cannot deactivate your own account' }, { status: 400 });
+    }
+    if (users[idx].active !== body.active) {
+      users[idx].active = body.active;
+      activeChangedTo = body.active;
+    }
+  }
   if (body.password) {
     users[idx].passwordHash = await bcrypt.hash(body.password, 10);
     users[idx].forcePasswordChange = body.forcePasswordChange !== undefined ? body.forcePasswordChange : true;
   }
 
   await saveUsers(users);
-  const changedFields = Object.keys(body).filter(k => k !== 'password').join(', ') || 'password';
-  logFromUser(user, 'user_edit', `user/${users[idx].email}`, `Edited user ${users[idx].name} ${users[idx].surname} — changed: ${changedFields}`);
+  if (activeChangedTo !== null) {
+    logFromUser(
+      user,
+      activeChangedTo ? 'user_reactivate' : 'user_deactivate',
+      `user/${users[idx].email}`,
+      activeChangedTo
+        ? `Reactivated ${users[idx].name} ${users[idx].surname} (${users[idx].email}) — they can sign in again`
+        : `Deactivated ${users[idx].name} ${users[idx].surname} (${users[idx].email}) — sign-in blocked, all data left in place`,
+    );
+  }
+  const otherFields = Object.keys(body).filter(k => k !== 'password' && k !== 'active');
+  if (otherFields.length || (!otherFields.length && body.password)) {
+    const changedFields = otherFields.join(', ') || 'password';
+    logFromUser(user, 'user_edit', `user/${users[idx].email}`, `Edited user ${users[idx].name} ${users[idx].surname} — changed: ${changedFields}`);
+  }
   const { passwordHash: _, ...safe } = users[idx];
   return NextResponse.json(safe, { headers: noCacheHeaders() });
 }

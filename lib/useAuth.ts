@@ -88,9 +88,13 @@ export function useAuth(requiredPermission?: string | string[]) {
         if (res.ok) {
           live = await res.json();
           localStorage.setItem(SESSION_KEY, JSON.stringify(live));
-        } else if (res.status === 401) {
+        } else if (res.status === 401 || res.status === 403) {
+          // 403 + inactive means the account was switched off while this tab
+          // was open. Carry that through so the login screen explains itself
+          // instead of looking like an ordinary timeout.
+          const body = await res.json().catch(() => ({} as { inactive?: boolean }));
           localStorage.removeItem(SESSION_KEY);
-          router.replace('/login');
+          router.replace(body?.inactive ? '/login?inactive=1' : '/login');
           return;
         }
       } catch {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { loadUsers, saveUsers } from '@/lib/userData';
+import { isActive, INACTIVE_MESSAGE } from '@/lib/accountStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,12 @@ export async function POST(req: NextRequest) {
     }
 
     const user = users[idx];
+
+    // Covers a link issued before the account was switched off.
+    if (!isActive(user)) {
+      return NextResponse.json({ error: INACTIVE_MESSAGE, inactive: true }, { status: 403 });
+    }
+
     if (!user.resetTokenExpiry || new Date(user.resetTokenExpiry) < new Date()) {
       // Clear expired token
       users[idx].resetToken = undefined;
