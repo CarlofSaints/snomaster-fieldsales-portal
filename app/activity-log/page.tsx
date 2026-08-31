@@ -19,7 +19,7 @@ interface LogEntry {
 const ACTION_GROUPS: Record<string, string[]> = {
   'Uploads': ['upload_visits', 'upload_dispo', 'upload_training', 'upload_targets', 'upload_display', 'upload_red_flags'],
   'Deletions': ['delete_visits', 'delete_dispo', 'delete_training', 'delete_targets', 'delete_display', 'delete_red_flags'],
-  'Users': ['user_create', 'user_edit', 'user_delete', 'user_purge', 'user_login', 'user_deactivate', 'user_reactivate', 'user_login_blocked'],
+  'Users': ['user_create', 'user_edit', 'user_delete', 'user_purge', 'user_login', 'user_deactivate', 'user_reactivate', 'user_login_blocked', 'user_notice_on', 'user_notice_off'],
   'Scores': ['scores_save'],
   'Data Access': ['load_form_data'],
   'Reminders': ['reminder_create', 'reminder_edit', 'reminder_delete', 'reminder_sent'],
@@ -36,6 +36,7 @@ const ACTION_LABELS: Record<string, string> = {
   user_create: 'Create User', user_edit: 'Edit User', user_delete: 'Delete User', user_purge: 'Purge User',
   user_login: 'User Login',
   user_deactivate: 'Deactivate User', user_reactivate: 'Reactivate User', user_login_blocked: 'Login Blocked',
+  user_notice_on: 'Show Sign-off Notice', user_notice_off: 'Clear Sign-off Notice',
   scores_save: 'Save Scores',
   load_form_data: 'View Form Data',
   reminder_create: 'Create Reminder', reminder_edit: 'Edit Reminder', reminder_delete: 'Delete Reminder', reminder_sent: 'Reminder Sent',

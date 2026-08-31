@@ -56,6 +56,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       activeChangedTo = body.active;
     }
   }
+
+  // The in-app warning. Independent of `active`, because its whole purpose is
+  // to reach someone who can still sign in.
+  let noticeChangedTo: boolean | null = null;
+  if (typeof body.signOffNotice === 'boolean') {
+    if ((users[idx].signOffNotice === true) !== body.signOffNotice) {
+      users[idx].signOffNotice = body.signOffNotice;
+      noticeChangedTo = body.signOffNotice;
+    }
+  }
   if (body.password) {
     users[idx].passwordHash = await bcrypt.hash(body.password, 10);
     users[idx].forcePasswordChange = body.forcePasswordChange !== undefined ? body.forcePasswordChange : true;
@@ -72,7 +82,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         : `Deactivated ${users[idx].name} ${users[idx].surname} (${users[idx].email}) — sign-in blocked, all data left in place`,
     );
   }
-  const otherFields = Object.keys(body).filter(k => k !== 'password' && k !== 'active');
+  if (noticeChangedTo !== null) {
+    logFromUser(
+      user,
+      noticeChangedTo ? 'user_notice_on' : 'user_notice_off',
+      `user/${users[idx].email}`,
+      noticeChangedTo
+        ? `Sign-off notice shown to ${users[idx].name} ${users[idx].surname} (${users[idx].email}) — they can still sign in`
+        : `Sign-off notice cleared for ${users[idx].name} ${users[idx].surname} (${users[idx].email})`,
+    );
+  }
+  const otherFields = Object.keys(body).filter(k => k !== 'password' && k !== 'active' && k !== 'signOffNotice');
   if (otherFields.length || (!otherFields.length && body.password)) {
     const changedFields = otherFields.join(', ') || 'password';
     logFromUser(user, 'user_edit', `user/${users[idx].email}`, `Edited user ${users[idx].name} ${users[idx].surname} — changed: ${changedFields}`);

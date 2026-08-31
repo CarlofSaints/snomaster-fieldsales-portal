@@ -11,6 +11,8 @@ export interface Session {
   surname: string;
   cellNumber?: string;
   role: Role;
+  /** Show the sign-off notice on every page. See lib/accountStatus.ts. */
+  signOffNotice?: boolean;
   forcePasswordChange: boolean;
   /**
    * What this user may do, resolved from their role. Used only to decide what
@@ -21,6 +23,14 @@ export interface Session {
 }
 
 const SESSION_KEY = 'snomaster_session';
+
+/**
+ * Fired after the session in localStorage is replaced with a fresh copy from
+ * /api/me. SignOffNotice lives in the root layout, outside the page tree, so
+ * this is how it learns that an admin turned the notice on or off without it
+ * having to poll or issue a second /api/me of its own.
+ */
+export const SESSION_EVENT = 'snomaster-session';
 
 /** Read the session without any of the redirect behaviour. */
 export function getSession(): Session | null {
@@ -88,6 +98,7 @@ export function useAuth(requiredPermission?: string | string[]) {
         if (res.ok) {
           live = await res.json();
           localStorage.setItem(SESSION_KEY, JSON.stringify(live));
+          window.dispatchEvent(new Event(SESSION_EVENT));
         } else if (res.status === 401 || res.status === 403) {
           // 403 + inactive means the account was switched off while this tab
           // was open. Carry that through so the login screen explains itself

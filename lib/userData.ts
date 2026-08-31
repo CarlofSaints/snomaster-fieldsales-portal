@@ -26,6 +26,13 @@ export interface User {
    * Deactivating leaves every other field, and all of the user's data, intact.
    */
   active?: boolean;
+  /**
+   * Show the sign-off notice to this user while they are still working.
+   * Independent of `active` on purpose: this is the warning that goes out
+   * BEFORE access is withdrawn, so it must reach someone who can still log in.
+   * A deactivated user is told the same thing at the login screen instead.
+   */
+  signOffNotice?: boolean;
   forcePasswordChange: boolean;
   createdAt: string;
   resetToken?: string;

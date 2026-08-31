@@ -110,6 +110,20 @@ body[data-sidebar-closed="true"] main {
   margin-left: 0;
   padding-top: 52px;
 }
+/* The sign-off notice sits above main and must line up with it, clear of the
+   fixed sidebar. When it is showing it absorbs the closed-sidebar top bar gap,
+   so main must not add that gap a second time. */
+.account-notice {
+  margin-left: 240px;
+  transition: margin-left 0.25s ease, padding-top 0.25s ease;
+}
+body[data-sidebar-closed="true"] .account-notice {
+  margin-left: 0;
+  padding-top: 52px;
+}
+body[data-sidebar-closed="true"][data-account-notice="true"] main {
+  padding-top: 0;
+}
 
 /* Pagination */
 .pagination {

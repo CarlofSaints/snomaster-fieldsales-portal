@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import SignOffNotice from '@/components/SignOffNotice';
 
 export const metadata: Metadata = {
   title: 'SnoMaster BA Measurement',
@@ -10,7 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <SignOffNotice />
+        {children}
+      </body>
     </html>
   );
 }

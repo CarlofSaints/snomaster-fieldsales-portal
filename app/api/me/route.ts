@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
     surname: user.surname,
     cellNumber: user.cellNumber || '',
     role: user.role,
+    signOffNotice: user.signOffNotice === true,
     forcePasswordChange: user.forcePasswordChange,
     permissions: [...await getUserPermissions(user)],
   }, { headers: noCacheHeaders() });

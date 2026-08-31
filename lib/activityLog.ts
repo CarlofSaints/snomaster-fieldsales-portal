@@ -7,6 +7,7 @@ export type ActivityAction =
   | 'cron_import'
   | 'user_create' | 'user_edit' | 'user_delete' | 'user_purge' | 'rep_exclude'
   | 'user_deactivate' | 'user_reactivate' | 'user_login_blocked'
+  | 'user_notice_on' | 'user_notice_off'
   | 'scores_save'
   | 'reminder_create' | 'reminder_edit' | 'reminder_delete' | 'reminder_sent'
   | 'callcycle_upload' | 'callcycle_edit' | 'callcycle_delete' | 'callcycle_clear'

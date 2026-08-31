@@ -18,6 +18,8 @@ interface UserRow {
   role: Role;
   /** Absent means active — see lib/accountStatus.ts. */
   active?: boolean;
+  /** Show the sign-off notice in-app. Independent of `active`. */
+  signOffNotice?: boolean;
   forcePasswordChange: boolean;
   createdAt: string;
 }
@@ -186,6 +188,50 @@ They will be able to sign in again with their existing password.`,
     }
   }
 
+  /**
+   * Show or clear the in-app sign-off notice. Deliberately separate from
+   * activation: this is the warning that goes out while someone is still
+   * working, so it has to be settable on an account that can still sign in.
+   */
+  async function toggleNotice(u: UserRow) {
+    const turningOn = u.signOffNotice !== true;
+    const who = `${u.name} ${u.surname}`;
+    const ok = confirm(
+      turningOn
+        ? `Show the sign-off notice to ${who}?
+
+They keep full access — this only puts a banner at the top of every page:
+
+"${INACTIVE_MESSAGE}"
+
+It appears on their next page load, no need for them to sign out.`
+        : `Clear the sign-off notice for ${who}?
+
+The banner stops showing on their next page load.`,
+    );
+    if (!ok) return;
+
+    try {
+      const res = await authFetch(`/api/users/${u.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signOffNotice: turningOn }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ msg: data.error || 'Notice change failed', type: 'error' });
+        return;
+      }
+      setToast({
+        msg: turningOn ? `Sign-off notice now showing to ${who}` : `Sign-off notice cleared for ${who}`,
+        type: 'success',
+      });
+      loadUsers();
+    } catch {
+      setToast({ msg: 'Notice change failed', type: 'error' });
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!confirm('Delete this user?')) return;
     try {
@@ -259,7 +305,7 @@ They will be able to sign in again with their existing password.`,
         </div>
 
         {/* So an admin can see exactly what a locked-out user is being told. */}
-        {users.some(u => u.active === false) && (
+        {users.some(u => u.active === false || u.signOffNotice === true) && (
           <div
             style={{
               display: 'flex',
@@ -279,9 +325,19 @@ They will be able to sign in again with their existing password.`,
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <div style={{ fontSize: '0.78rem', color: '#7f1d1d', lineHeight: 1.5 }}>
-              <strong>{users.filter(u => u.active === false).length} deactivated account{users.filter(u => u.active === false).length === 1 ? '' : 's'}.</strong>{' '}
-              Their data is untouched, they simply cannot sign in. On the login screen they see:
-              <em style={{ display: 'block', marginTop: 2 }}>&ldquo;{INACTIVE_MESSAGE}&rdquo;</em>
+              {users.some(u => u.active === false) && (
+                <div>
+                  <strong>{users.filter(u => u.active === false).length} deactivated account{users.filter(u => u.active === false).length === 1 ? '' : 's'}.</strong>{' '}
+                  Their data is untouched, they simply cannot sign in, and they see the notice on the login screen.
+                </div>
+              )}
+              {users.some(u => u.signOffNotice === true) && (
+                <div>
+                  <strong>{users.filter(u => u.signOffNotice === true).length} account{users.filter(u => u.signOffNotice === true).length === 1 ? '' : 's'} showing the notice in-app.</strong>{' '}
+                  They still have full access, with the banner at the top of every page.
+                </div>
+              )}
+              <em style={{ display: 'block', marginTop: 4 }}>&ldquo;{INACTIVE_MESSAGE}&rdquo;</em>
             </div>
           </div>
         )}
@@ -296,7 +352,7 @@ They will be able to sign in again with their existing password.`,
                 <th>Role</th>
                 <th>Status</th>
                 <th>Created</th>
-                <th style={{ width: 260 }}>Actions</th>
+                <th style={{ width: 360 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -322,6 +378,24 @@ They will be able to sign in again with their existing password.`,
                     >
                       {u.active === false ? 'Inactive' : 'Active'}
                     </span>
+                    {u.signOffNotice === true && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          marginLeft: 4,
+                          padding: '0.12rem 0.55rem',
+                          borderRadius: 999,
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          background: '#fef3c7',
+                          color: '#92400e',
+                          border: '1px solid #fcd34d',
+                        }}
+                        title="This user sees the sign-off notice on every page"
+                      >
+                        Notice
+                      </span>
+                    )}
                   </td>
                   <td>{new Date(u.createdAt).toLocaleDateString('en-ZA')}</td>
                   <td>
@@ -356,6 +430,22 @@ They will be able to sign in again with their existing password.`,
                           {u.active === false ? 'Reactivate' : 'Deactivate'}
                         </button>
                       )}
+                      <button
+                        className="btn btn-outline"
+                        style={{
+                          padding: '0.2rem 0.5rem',
+                          fontSize: '0.75rem',
+                          ...(u.signOffNotice === true
+                            ? { color: '#92400e', borderColor: '#fcd34d' }
+                            : {}),
+                        }}
+                        onClick={() => toggleNotice(u)}
+                        title={u.signOffNotice === true
+                          ? 'Stop showing the sign-off notice in the app'
+                          : 'Show the sign-off notice on every page, without blocking sign-in'}
+                      >
+                        {u.signOffNotice === true ? 'Clear notice' : 'Add notice'}
+                      </button>
                       <button className="btn btn-danger" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleDelete(u.id)}>Delete</button>
                       {session.role === 'super_admin' && (
                         <button

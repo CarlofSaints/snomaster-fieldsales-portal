@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       surname: user.surname,
       cellNumber: user.cellNumber || '',
       role: user.role,
+      signOffNotice: user.signOffNotice === true,
       forcePasswordChange: user.forcePasswordChange,
       // Sent so the browser knows what to draw. It is NOT the security boundary
       // — every API route re-resolves permissions from the role server-side.
